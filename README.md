@@ -57,7 +57,7 @@ sql/snowflake/                  Service role setup and one SQL template per Snow
 config/examples/                Templates for organisation-specific configuration
 prompts/system-prompt.md        Draft agent system prompt
 evals/scenarios.yaml            Seed evaluation scenarios
-diagrams/                       Architecture diagram (PNG, SVG) and its source
+diagrams/                       Architecture diagram (PNG, SVG, editable draw.io) and its sources
 scripts/render_tool_catalog.py  Regenerates docs/03 from the YAML
 ```
 
