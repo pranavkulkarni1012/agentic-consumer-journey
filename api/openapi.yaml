@@ -1,0 +1,576 @@
+openapi: 3.0.3
+info:
+  title: Access Diagnostics API
+  version: 0.1.0
+  description: |
+    REST projection of the Consumer Access Assistant tools (Phase 1 / MVP subset).
+    Every operation maps 1:1 to a tool in `specs/tool-catalog.yaml` (see `x-tool-id`) and is
+    served by the same Lambda handler the agent calls over MCP.
+
+    **Design draft.** Component schemas for `data` are illustrative; the authoritative schemas
+    are generated from the Pydantic models during implementation (`specs/schemas/`).
+
+    Conventions
+    - The caller's identity and scope come from the bearer token. There is no "requester" parameter.
+    - `{user}` accepts a UPN, email, sAMAccountName, platform login, or the literal `self`.
+    - `{table}` is a fully qualified name, URL-encoded (for example `SALES.CURATED.ORDERS`).
+    - All responses use the standard envelope. A business outcome such as "user not found" or
+      "requester not allowed" is HTTP 200 with `status: not_found` / `denied`, so that agent and
+      REST clients see the same contract. HTTP 4xx/5xx are reserved for transport-level failures.
+servers:
+  - url: https://api.caa.example.internal
+    description: Placeholder
+security:
+  - bearerAuth: []
+tags:
+  - { name: identity }
+  - { name: immuta }
+  - { name: snowflake }
+  - { name: entitlement }
+  - { name: catalog }
+  - { name: diagnosis }
+  - { name: knowledge }
+
+paths:
+  /v1/users/{user}/identity:
+    get:
+      tags: [identity]
+      operationId: identityResolveUser
+      x-tool-id: ID-01
+      x-tool-name: identity_resolve_user
+      summary: Map a person to their identity in each system and flag mismatches
+      parameters: [{ $ref: "#/components/parameters/User" }]
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Throttled" }
+
+  /v1/users/{user}/directory/groups:
+    get:
+      tags: [identity]
+      operationId: idpGetUserGroups
+      x-tool-id: ID-03
+      x-tool-name: idp_get_user_groups
+      summary: Directory groups the user belongs to (transitive), filtered to data-mesh prefixes
+      parameters:
+        - { $ref: "#/components/parameters/User" }
+        - name: include_all
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/users/{user}/directory/groups:check:
+    post:
+      tags: [identity]
+      operationId: idpCheckGroupMembership
+      x-tool-id: ID-04
+      x-tool-name: idp_check_group_membership
+      summary: Is the user a (transitive) member of the named groups
+      parameters: [{ $ref: "#/components/parameters/User" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [groups]
+              properties:
+                groups: { type: array, items: { type: string }, minItems: 1, maxItems: 20 }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/users/{user}/immuta/entitlements:
+    get:
+      tags: [immuta]
+      operationId: immutaGetUserEntitlements
+      x-tool-id: IM-02
+      x-tool-name: immuta_get_user_entitlements
+      summary: Groups and attributes Immuta holds for the user, with origin
+      parameters: [{ $ref: "#/components/parameters/User" }]
+      responses:
+        "200":
+          description: Envelope with `data` = ImmutaEntitlements
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/ImmutaEntitlements" }
+
+  /v1/immuta/data-sources:
+    get:
+      tags: [immuta]
+      operationId: immutaFindDataSource
+      x-tool-id: IM-03
+      x-tool-name: immuta_find_data_source
+      summary: Resolve a platform table to its Immuta data source
+      parameters:
+        - { name: table, in: query, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/PlatformQuery" }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/users/{user}/immuta/data-sources/{data_source_id}/subscription:
+    get:
+      tags: [immuta]
+      operationId: immutaGetSubscriptionStatus
+      x-tool-id: IM-05
+      x-tool-name: immuta_get_subscription_status
+      summary: The user's subscription state on a data source
+      parameters:
+        - { $ref: "#/components/parameters/User" }
+        - { $ref: "#/components/parameters/DataSourceId" }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/users/{user}/immuta/data-sources/{data_source_id}/subscription-decision:
+    get:
+      tags: [immuta]
+      operationId: immutaExplainSubscriptionDecision
+      x-tool-id: IM-16
+      x-tool-name: immuta_explain_subscription_decision
+      summary: Deterministic evaluation of the subscription policy against the user's entitlements
+      parameters:
+        - { $ref: "#/components/parameters/User" }
+        - { $ref: "#/components/parameters/DataSourceId" }
+      responses:
+        "200":
+          description: Envelope with `data` = SubscriptionDecision
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/SubscriptionDecision" }
+
+  /v1/users/{user}/snowflake/roles:
+    get:
+      tags: [snowflake]
+      operationId: snowflakeGetUserRoles
+      x-tool-id: SF-02
+      x-tool-name: snowflake_get_user_roles
+      summary: Snowflake roles held directly and through the hierarchy
+      parameters: [{ $ref: "#/components/parameters/User" }]
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/users/{user}/snowflake/tables:
+    get:
+      tags: [snowflake]
+      operationId: snowflakeListAccessibleTables
+      x-tool-id: SF-04
+      x-tool-name: snowflake_list_accessible_tables
+      summary: Data-mesh tables the user can SELECT in Snowflake
+      parameters:
+        - { $ref: "#/components/parameters/User" }
+        - { name: database, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 200, maximum: 1000 } }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/users/{user}/snowflake/tables/{table}/privileges:
+    get:
+      tags: [snowflake]
+      operationId: snowflakeCheckObjectPrivileges
+      x-tool-id: SF-03
+      x-tool-name: snowflake_check_object_privileges
+      summary: Privilege chain for one table and which roles supply each link
+      parameters:
+        - { $ref: "#/components/parameters/User" }
+        - { $ref: "#/components/parameters/Table" }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/users/{user}/snowflake/failed-queries:
+    get:
+      tags: [snowflake]
+      operationId: snowflakeGetFailedQueries
+      x-tool-id: SF-05
+      x-tool-name: snowflake_get_failed_queries
+      summary: The user's recent failed queries (default last 10 in the last 5 days)
+      parameters:
+        - { $ref: "#/components/parameters/User" }
+        - { name: days, in: query, schema: { type: integer, default: 5, minimum: 1, maximum: 14 } }
+        - { name: limit, in: query, schema: { type: integer, default: 10, minimum: 1, maximum: 50 } }
+        - { name: table, in: query, description: Optional filter, schema: { type: string } }
+      responses:
+        "200":
+          description: Envelope with `data.queries` = FailedQuery[]
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          queries: { type: array, items: { $ref: "#/components/schemas/FailedQuery" } }
+
+  /v1/users/{user}/tables/{table}/row-visibility:
+    get:
+      tags: [entitlement]
+      operationId: entitlementGetRowVisibility
+      x-tool-id: EN-01
+      x-tool-name: entitlement_get_row_visibility
+      summary: Row-level security - which accounts (row-scope values) the user can see
+      parameters:
+        - { $ref: "#/components/parameters/User" }
+        - { $ref: "#/components/parameters/Table" }
+        - { $ref: "#/components/parameters/PlatformQuery" }
+      responses:
+        "200":
+          description: Envelope with `data` = RowVisibility
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/RowVisibility" }
+
+  /v1/users/{user}/pi-access:
+    get:
+      tags: [entitlement]
+      operationId: entitlementGetPiAccess
+      x-tool-id: EN-02
+      x-tool-name: entitlement_get_pi_access
+      summary: PI columns clear or masked for the user, and what would unmask them
+      parameters:
+        - { $ref: "#/components/parameters/User" }
+        - { name: table, in: query, description: Omit for a summary across subscribed tables, schema: { type: string } }
+        - { $ref: "#/components/parameters/PlatformQuery" }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/users/{user}/access-summary:
+    get:
+      tags: [entitlement]
+      operationId: entitlementGetAccessSummary
+      x-tool-id: EN-03
+      x-tool-name: entitlement_get_access_summary
+      summary: 360 view of a user's identity, entitlements, roles and data products
+      parameters: [{ $ref: "#/components/parameters/User" }]
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/users/{user}/data-products:
+    get:
+      tags: [catalog]
+      operationId: telemetryGetUserAccess
+      x-tool-id: DP-04
+      x-tool-name: telemetry_get_user_access
+      summary: Data products and tables the user has access to, from telemetry
+      parameters:
+        - { $ref: "#/components/parameters/User" }
+        - { $ref: "#/components/parameters/PlatformQuery" }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/data-products/{data_product_id}:
+    get:
+      tags: [catalog]
+      operationId: catalogGetDataProduct
+      x-tool-id: DP-02
+      x-tool-name: catalog_get_data_product
+      summary: Data product detail and access contract
+      parameters:
+        - { name: data_product_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/diagnoses/table-access:
+    post:
+      tags: [diagnosis]
+      operationId: diagnoseTableAccess
+      x-tool-id: DX-01
+      x-tool-name: diagnose_table_access
+      summary: Run the access chain for one user and one table; return expected vs actual, root causes, next actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [table, platform]
+              properties:
+                user: { type: string, default: self }
+                table: { type: string, example: SALES.CURATED.ORDERS }
+                platform: { $ref: "#/components/schemas/Platform" }
+                query_id: { type: string, description: Optional failing query to use as session context }
+      responses:
+        "200":
+          description: Envelope with `data` = Diagnosis
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Diagnosis" }
+
+  /v1/diagnoses/failed-query:
+    post:
+      tags: [diagnosis]
+      operationId: diagnoseFailedQuery
+      x-tool-id: DX-02
+      x-tool-name: diagnose_failed_query
+      summary: Classify a failed query and diagnose the tables involved if it is access-related
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform]
+              properties:
+                user: { type: string, default: self }
+                query_id: { type: string, description: Omit to use the user's most recent failed query }
+                platform: { $ref: "#/components/schemas/Platform" }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/diagnoses/{diagnosis_id}:
+    get:
+      tags: [diagnosis]
+      operationId: getDiagnosis
+      summary: Retrieve a stored diagnosis and its evidence index (requester must be the subject or support+)
+      parameters:
+        - { name: diagnosis_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+  /v1/kb/errors/{platform}/{code}:
+    get:
+      tags: [knowledge]
+      operationId: kbGetErrorReference
+      x-tool-id: WF-02
+      x-tool-name: kb_get_error_reference
+      summary: Curated meaning and likely causes for a platform error code
+      parameters:
+        - { name: platform, in: path, required: true, schema: { $ref: "#/components/schemas/Platform" } }
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { $ref: "#/components/responses/Envelope" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OIDC access token from the corporate identity provider (via Cognito or Entra ID directly)
+
+  parameters:
+    User:
+      name: user
+      in: path
+      required: true
+      description: UPN, email, sAMAccountName, platform login, or `self`
+      schema: { type: string, maxLength: 256 }
+    Table:
+      name: table
+      in: path
+      required: true
+      description: Fully qualified table name, URL-encoded
+      schema: { type: string, maxLength: 512 }
+    DataSourceId:
+      name: data_source_id
+      in: path
+      required: true
+      schema: { type: integer }
+    PlatformQuery:
+      name: platform
+      in: query
+      schema: { $ref: "#/components/schemas/Platform" }
+
+  responses:
+    Envelope:
+      description: Standard tool envelope
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Envelope" }
+    Unauthorized:
+      description: Missing or invalid token
+    Throttled:
+      description: Rate limit exceeded
+      headers:
+        Retry-After: { schema: { type: integer } }
+
+  schemas:
+    Platform:
+      type: string
+      enum: [snowflake, databricks, starburst]
+      default: snowflake
+
+    Envelope:
+      type: object
+      required: [tool, tool_version, status, trace_id]
+      properties:
+        tool: { type: string }
+        tool_version: { type: string }
+        status: { type: string, enum: [ok, partial, not_found, denied, error] }
+        subject:
+          type: object
+          properties:
+            user: { type: string }
+            canonical_user_id: { type: string }
+        data: { type: object, additionalProperties: true }
+        evidence: { type: array, items: { $ref: "#/components/schemas/Evidence" } }
+        freshness:
+          type: object
+          properties:
+            mode: { type: string, enum: [live, lagged, cached] }
+            max_lag_seconds: { type: integer }
+        warnings:
+          type: array
+          items:
+            type: object
+            properties: { code: { type: string }, message: { type: string } }
+        error:
+          nullable: true
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [INVALID_INPUT, SUBJECT_AMBIGUOUS, SCOPE_DENIED, UPSTREAM_TIMEOUT, UPSTREAM_AUTH,
+                     UPSTREAM_THROTTLED, UPSTREAM_ERROR, CONFIRMATION_REQUIRED, NOT_ENABLED]
+            message: { type: string }
+            retryable: { type: boolean }
+            retry_after_seconds: { type: integer }
+        trace_id: { type: string }
+
+    Evidence:
+      type: object
+      required: [id, source, retrieved_at]
+      properties:
+        id: { type: string }
+        source: { type: string, example: snowflake.account_usage.grants_to_roles }
+        retrieved_at: { type: string, format: date-time }
+        data_as_of: { type: string, format: date-time }
+        claim: { type: string }
+        ref: { type: string, description: Pointer to the stored payload }
+
+    ImmutaEntitlements:
+      type: object
+      properties:
+        groups:
+          type: array
+          items:
+            type: object
+            properties: { name: { type: string }, iamid: { type: string } }
+        attributes:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              values: { type: array, items: { type: string } }
+              origin: { type: string, enum: [iam, immuta, group] }
+              via_group: { type: string }
+        synced_from_iam: { type: boolean }
+
+    Condition:
+      type: object
+      description: Node of the normalised policy condition tree (docs/06 section 4)
+      properties:
+        kind: { type: string, enum: [group, attribute, everyone, approval, unsupported] }
+        op: { type: string, enum: [AND, OR] }
+        name: { type: string }
+        value: { type: string }
+        children: { type: array, items: { $ref: "#/components/schemas/Condition" } }
+
+    SubscriptionDecision:
+      type: object
+      properties:
+        expected_access: { type: string, enum: [yes, no, approval_required, unknown] }
+        satisfied_conditions: { type: array, items: { $ref: "#/components/schemas/Condition" } }
+        unmet_conditions: { type: array, items: { $ref: "#/components/schemas/Condition" } }
+        missing_groups: { type: array, items: { type: string } }
+        missing_attributes:
+          type: array
+          items:
+            type: object
+            properties: { name: { type: string }, value: { type: string } }
+
+    FailedQuery:
+      type: object
+      properties:
+        query_id: { type: string }
+        start_time: { type: string, format: date-time }
+        error_code: { type: string }
+        error_message: { type: string }
+        error_class: { type: string }
+        role_name: { type: string }
+        secondary_roles:
+          description: List of role names, or the string ALL
+          oneOf:
+            - { type: array, items: { type: string } }
+            - { type: string, enum: [ALL] }
+        warehouse: { type: string }
+        database: { type: string }
+        schema: { type: string }
+        query_text_redacted: { type: string }
+
+    RowVisibility:
+      type: object
+      properties:
+        rls_applies: { type: boolean }
+        scope_dimension: { type: string, example: account_id }
+        visible_values: { type: array, nullable: true, items: { type: string } }
+        visible_count: { type: integer }
+        sees_all_rows: { type: boolean }
+        sees_no_rows: { type: boolean }
+        granted_by: { type: array, items: { type: object, additionalProperties: true } }
+        policy_plain_english: { type: string }
+
+    Diagnosis:
+      type: object
+      required: [diagnosis_id, verdict, expected_access, actual_access, layers]
+      properties:
+        diagnosis_id: { type: string }
+        verdict:
+          type: string
+          enum: [access_ok_session_issue, access_ok_no_fault_found, expected_yes_actual_no,
+                 expected_no_actual_no, approval_pending, expected_no_actual_yes,
+                 data_unavailable, inconclusive]
+        expected_access: { type: string, enum: [yes, no, approval_required, unknown] }
+        actual_access: { type: string, enum: [yes, no, unknown] }
+        layers:
+          type: array
+          items:
+            type: object
+            properties:
+              layer: { type: string, enum: [L0_identity, L1_entitlements, L2_policy, L3_enforcement, L4_session, L5_data] }
+              status: { type: string, enum: [pass, fail, consistent, not_evaluated] }
+              findings: { type: array, items: { type: string } }
+        root_causes:
+          type: array
+          items:
+            type: object
+            properties:
+              code: { type: string, example: DIR-001 }
+              title: { type: string }
+              confidence: { type: string, enum: [high, medium, low] }
+              detail: { type: object, additionalProperties: true }
+              evidence_refs: { type: array, items: { type: string } }
+        next_actions:
+          type: array
+          items:
+            type: object
+            properties:
+              actor: { type: string, enum: [user, support, immuta_admin, snowflake_platform, iam, producer, governance] }
+              action: { type: string }
+              detail: { type: object, additionalProperties: true }
+              expected_effect: { type: string }
+        unchecked: { type: array, items: { type: string } }
+        user_message_policy: { type: string, enum: [normal, neutral] }
+        data_as_of: { type: string, format: date-time }

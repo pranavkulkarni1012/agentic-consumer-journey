@@ -1,0 +1,11 @@
+# Which platform objects count as data-mesh data products. Tools never look outside this.
+snowflake:
+  accounts:
+    - name: prod
+      account_identifier: "<org>-<account>"
+      databases: ["SALES", "FINANCE", "CUSTOMER"]       # allow-list rendered into SQL IN-lists
+      exclude_schemas: ["INFORMATION_SCHEMA", "SCRATCH"]
+databricks:
+  catalogs: []
+starburst:
+  catalogs: []

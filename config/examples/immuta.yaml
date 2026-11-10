@@ -1,0 +1,9 @@
+immuta:
+  base_url: "https://<tenant>.hosted.immutacloud.com"   # placeholder
+  api_key_secret: "caa/immuta/api-key"                  # Secrets Manager name
+  iam_id: "<iam id used for directory users>"
+  snowflake_database: "IMMUTA"                          # database holding Immuta-managed policies
+  snowflake_role_prefix: "IMMUTA_USER_"                 # per-user role prefix; confirm with Immuta admin
+  excepted_roles: []                                    # roles that bypass Immuta policies (docs/12 Q7)
+  request_timeout_seconds: 8
+  max_requests_per_second: 5

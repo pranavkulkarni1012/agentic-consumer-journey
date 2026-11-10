@@ -1,0 +1,16 @@
+# Which Immuta tags mark a column as personal information, and how unmasking is requested.
+pi_tags:
+  - tag: "PI.Contact"          # placeholder tag names; use your tag hierarchy
+    category: Contact
+    unmask_requires: "AD group DM-PI-{domain}"
+  - tag: "PI.GovernmentID"
+    category: Government ID
+    unmask_requires: "AD group DM-SPI-{domain} plus approved purpose"
+  - tag: "Discovered.Entity.Email Address"
+    category: Contact
+    unmask_requires: "AD group DM-PI-{domain}"
+masking_type_labels:
+  "null": "shown as NULL"
+  hash: "shown as a hash"
+  constant: "replaced with a fixed value"
+  regex: "partly hidden"

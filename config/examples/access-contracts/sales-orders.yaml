@@ -1,0 +1,16 @@
+# Fallback access contract for a data product, used when the catalog does not hold one.
+# The engine cross-checks this against the live Immuta policy and raises POL-007 on mismatch.
+data_product_id: sales-orders
+name: Sales Orders
+owner_team: Sales Data Products
+steward: "<steward upn>"
+format: iceberg
+platforms:
+  snowflake:
+    tables: ["SALES.CURATED.ORDERS", "SALES.CURATED.ORDER_LINES"]
+access_contract:
+  groups: ["DM-SALES-CONSUMER"]
+  attributes:
+    Region: ["APAC", "GLOBAL"]
+  row_scope: { dimension: account_id, attribute: AccountAccess }
+  pi_group: "DM-PI-SALES"

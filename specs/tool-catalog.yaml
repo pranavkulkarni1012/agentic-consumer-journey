@@ -1,0 +1,1042 @@
+# Consumer Access Assistant (CAA) - Tool Catalog (source of truth)
+# docs/03-tool-catalog.md is GENERATED from this file by scripts/render_tool_catalog.py.
+# Change tools here, then re-render. Detailed contracts for Phase 1 tools: docs/04-tool-specifications.md
+#
+# Field guide
+#   id        stable short id used in stories, tests and traces
+#   name      MCP tool name (snake_case, <domain>_<verb>_<noun>)
+#   phase     1 = MVP (Snowflake + Immuta + Entra ID), 2 = depth + proactive monitoring,
+#             3 = Databricks + Starburst + storage, 4 = consumer onboarding
+#   type      read | derived (computed from other tools, no new source) | write (needs user confirmation)
+#   rest      REST projection of the same handler (Access Diagnostics API)
+#   freshness live | lagged(<max lag>) | cached(<ttl>)
+#   scope     who may call it for a subject other than themselves: self | support | steward | platform
+#   verify    true = upstream API/SQL detail must be confirmed against the deployed version in spike CAA-003
+
+version: 1.0
+conventions:
+  subject_param: "user  - the person being diagnosed (UPN, email, sAMAccountName or platform login). Resolved by ID-01."
+  requester: "Taken from the authenticated token by the gateway. NEVER a tool parameter."
+  table_param: "table - fully qualified name. Snowflake: DB.SCHEMA.TABLE, Databricks: catalog.schema.table, Starburst: catalog.schema.table"
+  envelope: "Every tool returns the standard envelope defined in docs/04-tool-specifications.md section 2"
+
+tools:
+# ───────────────────────────── A. Identity and directory ─────────────────────────────
+- id: ID-01
+  name: identity_resolve_user
+  domain: identity
+  phase: 1
+  type: derived
+  summary: Map one person to their identity in every system (Entra ID, Immuta, Snowflake, Databricks, Starburst) and flag mismatches.
+  how: "Entra lookup by UPN/mail/sAMAccountName, then Immuta GET /bim/user?userid=, then Snowflake USERS by login_name/email. Cached 15 min."
+  rest: "GET /v1/users/{user}/identity"
+  inputs: {user: string}
+  outputs: [canonical_user_id, entra, immuta, snowflake, databricks, starburst, mismatches]
+  freshness: "cached(15m)"
+  scope: support
+- id: ID-02
+  name: idp_get_user
+  domain: identity
+  phase: 1
+  type: read
+  summary: Directory account status - enabled or disabled, UPN, mail, department, manager, account type, on-prem sync status.
+  how: "Microsoft Graph GET /users/{id}?$select=accountEnabled,userPrincipalName,mail,onPremisesSamAccountName,department,onPremisesSyncEnabled,onPremisesLastSyncDateTime (+ /manager)"
+  rest: "GET /v1/users/{user}/directory"
+  inputs: {user: string}
+  outputs: [account_enabled, upn, mail, sam_account_name, department, manager, last_directory_sync]
+  freshness: live
+  scope: support
+- id: ID-03
+  name: idp_get_user_groups
+  domain: identity
+  phase: 1
+  type: read
+  summary: All AD/Entra groups the user belongs to, including nested membership, filtered to data-mesh group prefixes.
+  how: "Graph GET /users/{id}/transitiveMemberOf/microsoft.graph.group (paged, ConsistencyLevel: eventual). Filter by configured prefixes, e.g. DM-*, SNOW-*."
+  rest: "GET /v1/users/{user}/directory/groups"
+  inputs: {user: string, prefix_filter: "string[] (optional)", include_all: "boolean (default false)"}
+  outputs: [groups: "[{id, name, membership: direct|nested, via_group}]", total]
+  freshness: live
+  scope: support
+- id: ID-04
+  name: idp_check_group_membership
+  domain: identity
+  phase: 1
+  type: read
+  summary: Yes/no answer - is the user a (transitive) member of the named groups.
+  how: "Graph POST /users/{id}/checkMemberGroups with up to 20 group ids per call"
+  rest: "POST /v1/users/{user}/directory/groups:check"
+  inputs: {user: string, groups: "string[] (names or ids)"}
+  outputs: [results: "[{group, is_member}]"]
+  freshness: live
+  scope: support
+- id: ID-05
+  name: idp_get_group_details
+  domain: identity
+  phase: 2
+  type: read
+  summary: Group description, owners, membership type (assigned or dynamic rule) and how to request membership.
+  how: "Graph GET /groups/{id}?$select=displayName,description,groupTypes,membershipRule + /owners. Request route from config/access-request-routes.yaml."
+  rest: "GET /v1/directory/groups/{group}"
+  inputs: {group: string}
+  outputs: [name, description, owners, membership_type, membership_rule, request_route]
+  freshness: live
+  scope: self
+- id: ID-06
+  name: idp_get_group_change_log
+  domain: identity
+  phase: 2
+  type: read
+  summary: When the user was added to or removed from a group, and by whom - used for 'it worked yesterday' and propagation-lag cases.
+  how: "Graph GET /auditLogs/directoryAudits filtered on category GroupManagement and target user (requires AuditLog.Read.All; retention depends on licence)"
+  rest: "GET /v1/users/{user}/directory/group-changes"
+  inputs: {user: string, days: "integer (default 14, max 30)"}
+  outputs: [changes: "[{timestamp, action: add|remove, group, initiated_by}]"]
+  freshness: live
+  scope: support
+  verify: true
+- id: ID-07
+  name: idp_get_user_attributes
+  domain: identity
+  phase: 2
+  type: read
+  summary: Directory extension attributes that feed ABAC (for example region, entity, clearance) at the source, before Immuta maps them.
+  how: "Graph GET /users/{id}?$select=<configured extension attributes>. Attribute list in config/attribute-map.yaml."
+  rest: "GET /v1/users/{user}/directory/attributes"
+  inputs: {user: string}
+  outputs: [attributes: "{name: [values]}"]
+  freshness: live
+  scope: support
+
+# ───────────────────────────────────── B. Immuta ─────────────────────────────────────
+- id: IM-01
+  name: immuta_get_user
+  domain: immuta
+  phase: 1
+  type: read
+  summary: Immuta user record - exists or not, disabled flag, IAM source, external user id mappings (Snowflake, Databricks, Trino user names).
+  how: "GET /bim/user?userid={upn} to find the numeric id, then GET /bim/iam/{iamid}/user/{id} (USER_ADMIN or AUDIT permission)"
+  rest: "GET /v1/users/{user}/immuta"
+  inputs: {user: string}
+  outputs: [found, profile_id, iamid, userid, disabled, external_user_ids, last_login]
+  freshness: live
+  scope: support
+- id: IM-02
+  name: immuta_get_user_entitlements
+  domain: immuta
+  phase: 1
+  type: read
+  summary: Groups and attributes (authorizations) Immuta holds for the user, with where each came from - IAM sync, set in Immuta, or inherited from a group.
+  how: "GET /bim/iam/{iamid}/user/{id} -> authorizations, bimAuthorizations, iamAuthorizations, groups; GET /bim/iam/{iamid}/user/{userid}/groups; group-level attributes from GET /bim/group/{groupId}"
+  rest: "GET /v1/users/{user}/immuta/entitlements"
+  inputs: {user: string}
+  outputs: [groups: "[{name, iamid}]", attributes: "[{name, values, origin: iam|immuta|group, via_group}]"]
+  freshness: live
+  scope: support
+- id: IM-03
+  name: immuta_find_data_source
+  domain: immuta
+  phase: 1
+  type: read
+  summary: Resolve a platform table name or data product name to the Immuta data source(s) that govern it.
+  how: "GET /dataSource?searchText=&schema=&size= ; GET /dataSource/sqlTableName/{shortName}; match on connection + remote schema/table"
+  rest: "GET /v1/immuta/data-sources?table={table}&platform={platform}"
+  inputs: {table: string, platform: "snowflake|databricks|starburst"}
+  outputs: [matches: "[{data_source_id, name, platform, remote_database, remote_schema, remote_table, status}]"]
+  freshness: "cached(10m)"
+  scope: self
+- id: IM-04
+  name: immuta_get_data_source
+  domain: immuta
+  phase: 1
+  type: read
+  summary: Data source health and governance summary - enabled, health status, owners, applied global policies, tags, last schema detection.
+  how: "GET /dataSource/{dataSourceId} (status, statusInfo, subscriptionPolicy, globalPolicies, deleted) + GET /dataSource/{id}/contacts"
+  rest: "GET /v1/immuta/data-sources/{data_source_id}"
+  inputs: {data_source_id: integer}
+  outputs: [name, enabled, health_status, health_detail, owners, subscription_policy_type, policy_names, deleted]
+  freshness: live
+  scope: self
+- id: IM-05
+  name: immuta_get_subscription_status
+  domain: immuta
+  phase: 1
+  type: read
+  summary: Is this user subscribed to this data source - subscribed, pending, denied, not subscribed, expired - and how they got it (policy or manual).
+  how: "GET /dataSource/{dataSourceId}/access?searchText={userid}&expandGroups=true -> state, approved, approvals, subscriptionId"
+  rest: "GET /v1/users/{user}/immuta/data-sources/{data_source_id}/subscription"
+  inputs: {user: string, data_source_id: integer}
+  outputs: [state, approved, via: "policy|manual|group", via_group, expiration, pending_approvers]
+  freshness: live
+  scope: support
+- id: IM-06
+  name: immuta_get_subscription_policy
+  domain: immuta
+  phase: 1
+  type: read
+  summary: The subscription policy on a data source expressed as required groups and attributes, in machine-readable and plain-English form.
+  how: "subscriptionPolicy object from GET /dataSource/{id}; global policy detail from the v1 policy API. Normalise to the condition tree in docs/06."
+  rest: "GET /v1/immuta/data-sources/{data_source_id}/subscription-policy"
+  inputs: {data_source_id: integer}
+  outputs: [policy_type: "automatic|approval|anyone|none", condition_tree, required_groups, required_attributes, approvers, plain_english]
+  freshness: "cached(10m)"
+  scope: self
+  verify: true
+- id: IM-07
+  name: immuta_get_user_policy_info
+  domain: immuta
+  phase: 1
+  type: read
+  summary: What Immuta will enforce for this user on this data source - row filters, masked columns and visibilities. The primary source for RLS and PI answers.
+  how: "GET /dataSource/{dataSourceId}/users/{profileId}/policyInfo (FETCH_POLICY_INFO) -> visibilities, visibilityRuleApplies, masked, additionalFilters; optional /visibilityReport (GOVERNANCE)"
+  rest: "GET /v1/users/{user}/immuta/data-sources/{data_source_id}/policy-info"
+  inputs: {user: string, data_source_id: integer}
+  outputs: [row_filter_applies, row_filters, masked_columns: "[{column, masking_type}]", visibilities]
+  freshness: live
+  scope: support
+- id: IM-08
+  name: immuta_list_user_data_sources
+  domain: immuta
+  phase: 2
+  type: read
+  summary: Every data source the user is subscribed to in Immuta.
+  how: "Option A: Immuta audit/UAM export in S3 queried with Athena. Option B: per-user Snowflake role grants (SF-04) joined to IM-03. Option C: page GET /dataSource and filter on /access. Choose in spike CAA-003."
+  rest: "GET /v1/users/{user}/immuta/data-sources"
+  inputs: {user: string, platform: "string (optional)", limit: "integer (default 200)"}
+  outputs: [data_sources: "[{data_source_id, name, platform, state}]", total, truncated]
+  freshness: "lagged(1h)"
+  scope: support
+  verify: true
+- id: IM-09
+  name: immuta_get_data_policies
+  domain: immuta
+  phase: 2
+  type: read
+  summary: Data policies (masking and row-level rules) applied to a data source, with their exception conditions.
+  how: "v1 policy API - policy handler for the data source plus global policy definitions. Normalise rules and exceptions to the condition tree in docs/06."
+  rest: "GET /v1/immuta/data-sources/{data_source_id}/data-policies"
+  inputs: {data_source_id: integer}
+  outputs: [policies: "[{name, kind: masking|row, columns_or_tags, rule, exceptions, plain_english}]"]
+  freshness: "cached(10m)"
+  scope: steward
+  verify: true
+- id: IM-10
+  name: immuta_get_data_source_activity
+  domain: immuta
+  phase: 2
+  type: read
+  summary: Recent policy and subscription activity on a data source - who changed what and when.
+  how: "GET /dataSource/{dataSourceId}/activities?size=&offset="
+  rest: "GET /v1/immuta/data-sources/{data_source_id}/activity"
+  inputs: {data_source_id: integer, days: "integer (default 14)"}
+  outputs: [activities: "[{timestamp, type, action_by, target_user, detail}]"]
+  freshness: live
+  scope: steward
+- id: IM-11
+  name: immuta_get_data_source_tags
+  domain: immuta
+  phase: 1
+  type: read
+  summary: Column-level tags on a data source, used to identify PI / sensitive columns.
+  how: "GET /dataSource/{dataSourceId}/tags plus the data dictionary for column tags. PI tag list in config/pi-classification.yaml."
+  rest: "GET /v1/immuta/data-sources/{data_source_id}/tags"
+  inputs: {data_source_id: integer}
+  outputs: [table_tags, columns: "[{column, tags, is_pi}]"]
+  freshness: "cached(10m)"
+  scope: self
+  verify: true
+- id: IM-12
+  name: immuta_get_integration_status
+  domain: immuta
+  phase: 1
+  type: read
+  summary: Health of each Immuta integration (Snowflake, Databricks Unity Catalog, Starburst) so platform-wide faults are ruled out first.
+  how: "GET /integrations and GET /integrations/{id}/status (status, validationResults)"
+  rest: "GET /v1/immuta/integrations"
+  inputs: {platform: "string (optional)"}
+  outputs: [integrations: "[{id, type, status, validation_tests}]"]
+  freshness: "cached(2m)"
+  scope: self
+- id: IM-13
+  name: immuta_get_access_requests
+  domain: immuta
+  phase: 2
+  type: read
+  summary: Open or recent access requests the user has raised in Immuta and who must approve them.
+  how: "GET /dataSource/{dataSourceId}/tasks (and Immuta Request app API/webhooks if the Request app is in use)"
+  rest: "GET /v1/users/{user}/immuta/access-requests"
+  inputs: {user: string, data_source_id: "integer (optional)"}
+  outputs: [requests: "[{data_source, state, requested_at, approvers}]"]
+  freshness: live
+  scope: support
+  verify: true
+- id: IM-14
+  name: immuta_get_audit_events
+  domain: immuta
+  phase: 2
+  type: read
+  summary: Immuta audit events for a user or data source - subscription granted or revoked, policy applied, query denied.
+  how: "Immuta Universal Audit Model export to S3, queried through Athena (table caa_audit.immuta_uam). Avoids load on the Immuta API."
+  rest: "GET /v1/immuta/audit-events"
+  inputs: {user: "string (optional)", data_source_id: "integer (optional)", days: "integer (default 7)", limit: "integer (default 50)"}
+  outputs: [events: "[{timestamp, action, action_status, actor, target, detail}]"]
+  freshness: "lagged(1h)"
+  scope: support
+- id: IM-15
+  name: immuta_get_user_projects
+  domain: immuta
+  phase: 3
+  type: read
+  summary: Immuta projects and purposes the user belongs to, for purpose-based access rules.
+  how: "v1 project API filtered by member"
+  rest: "GET /v1/users/{user}/immuta/projects"
+  inputs: {user: string}
+  outputs: [projects: "[{id, name, purposes, state}]"]
+  freshness: live
+  scope: support
+  verify: true
+- id: IM-16
+  name: immuta_explain_subscription_decision
+  domain: immuta
+  phase: 1
+  type: derived
+  summary: Deterministic evaluation of the subscription policy against the user's entitlements - which conditions pass, which fail, and exactly what is missing.
+  how: "Pure function in caa_core.policy_eval over IM-02 + IM-06 output. No LLM involved."
+  rest: "GET /v1/users/{user}/immuta/data-sources/{data_source_id}/subscription-decision"
+  inputs: {user: string, data_source_id: integer}
+  outputs: [expected_access: "yes|no|approval_required|unknown", satisfied_conditions, unmet_conditions, missing_groups, missing_attributes]
+  freshness: live
+  scope: support
+
+# ─────────────────────────────────── C. Snowflake ────────────────────────────────────
+- id: SF-01
+  name: snowflake_get_user
+  domain: snowflake
+  phase: 1
+  type: read
+  summary: Snowflake user status - exists, disabled, locked, expired, default role, default warehouse, default secondary roles, last successful login.
+  how: "SNOWFLAKE.ACCOUNT_USAGE.USERS (sql/snowflake/get_user.sql)"
+  rest: "GET /v1/users/{user}/snowflake"
+  inputs: {user: string}
+  outputs: [found, name, login_name, disabled, locked, expires_at, default_role, default_warehouse, default_secondary_roles, last_success_login, type]
+  freshness: "lagged(2h)"
+  scope: support
+- id: SF-02
+  name: snowflake_get_user_roles
+  domain: snowflake
+  phase: 1
+  type: read
+  summary: Roles granted to the user directly and through the role hierarchy, flagging the Immuta-managed per-user role.
+  how: "Recursive CTE over ACCOUNT_USAGE.GRANTS_TO_USERS and GRANTS_TO_ROLES (sql/snowflake/get_user_roles.sql). Immuta role = <PREFIX>_USER_<username>."
+  rest: "GET /v1/users/{user}/snowflake/roles"
+  inputs: {user: string}
+  outputs: [roles: "[{role, grant_path, depth, is_immuta_managed}]", immuta_role_present]
+  freshness: "lagged(2h)"
+  scope: support
+- id: SF-03
+  name: snowflake_check_object_privileges
+  domain: snowflake
+  phase: 1
+  type: read
+  summary: Full privilege chain for a table - USAGE on database, USAGE on schema, SELECT on table - and which of the user's roles supplies each link.
+  how: "GRANTS_TO_ROLES joined to the effective role set from SF-02 (sql/snowflake/check_object_privileges.sql)"
+  rest: "GET /v1/users/{user}/snowflake/tables/{table}/privileges"
+  inputs: {user: string, table: string}
+  outputs: [database_usage, schema_usage, table_select, roles_with_full_chain, primary_role_alone_sufficient, requires_secondary_roles]
+  freshness: "lagged(2h)"
+  scope: support
+- id: SF-04
+  name: snowflake_list_accessible_tables
+  domain: snowflake
+  phase: 1
+  type: read
+  summary: Tables and views the user can SELECT in Snowflake through any role, limited to data-mesh databases.
+  how: "GRANTS_TO_ROLES for the effective role set, privilege SELECT, filtered by config/data-mesh-scope.yaml (sql/snowflake/list_accessible_tables.sql)"
+  rest: "GET /v1/users/{user}/snowflake/tables"
+  inputs: {user: string, database: "string (optional)", limit: "integer (default 200)"}
+  outputs: [tables: "[{database, schema, table, via_role}]", total, truncated]
+  freshness: "lagged(2h)"
+  scope: support
+- id: SF-05
+  name: snowflake_get_failed_queries
+  domain: snowflake
+  phase: 1
+  type: read
+  summary: The user's most recent failed queries (default last 10 in last 5 days) with error code, message, role, secondary roles and warehouse.
+  how: "ACCOUNT_USAGE.QUERY_HISTORY where execution_status is FAIL/INCIDENT (sql/snowflake/get_failed_queries.sql). Query text truncated and literal-redacted."
+  rest: "GET /v1/users/{user}/snowflake/failed-queries?days=5&limit=10"
+  inputs: {user: string, days: "integer (default 5, max 14)", limit: "integer (default 10, max 50)", table: "string (optional filter)"}
+  outputs: [queries: "[{query_id, start_time, error_code, error_message, error_class, role_name, secondary_roles, warehouse, database, schema, query_text_redacted}]"]
+  freshness: "lagged(45m)"
+  scope: support
+- id: SF-06
+  name: snowflake_get_query_details
+  domain: snowflake
+  phase: 1
+  type: read
+  summary: Details of one query by id - status, error, session role context, objects referenced - when the user pastes a query id.
+  how: "QUERY_HISTORY by query_id, plus ACCESS_HISTORY for objects and policies referenced (sql/snowflake/get_query_details.sql)"
+  rest: "GET /v1/snowflake/queries/{query_id}"
+  inputs: {query_id: string}
+  outputs: [query_id, user_name, status, error_code, error_message, error_class, role_name, secondary_roles, warehouse, objects_accessed, policies_referenced]
+  freshness: "lagged(45m-3h)"
+  scope: support
+- id: SF-07
+  name: snowflake_get_table_policies
+  domain: snowflake
+  phase: 1
+  type: read
+  summary: Row access and masking policies actually attached to the table in Snowflake, to confirm Immuta's policies are enforced on the platform.
+  how: "ACCOUNT_USAGE.POLICY_REFERENCES by table (sql/snowflake/get_table_policies.sql)"
+  rest: "GET /v1/snowflake/tables/{table}/policies"
+  inputs: {table: string}
+  outputs: [row_access_policies, masking_policies: "[{column, policy_name}]", immuta_managed]
+  freshness: "lagged(2h)"
+  scope: support
+- id: SF-08
+  name: snowflake_get_table_status
+  domain: snowflake
+  phase: 1
+  type: read
+  summary: Does the table exist, what type is it (Iceberg, external, view), who owns it, and has it been dropped or recreated recently.
+  how: "ACCOUNT_USAGE.TABLES including deleted rows, most recent 5 versions (sql/snowflake/get_table_status.sql)"
+  rest: "GET /v1/snowflake/tables/{table}"
+  inputs: {table: string}
+  outputs: [exists, table_type, is_iceberg, owner, created, last_altered, row_count, recreated_recently, history]
+  freshness: "lagged(2h)"
+  scope: self
+- id: SF-09
+  name: snowflake_get_login_history
+  domain: snowflake
+  phase: 2
+  type: read
+  summary: Recent login attempts and failures with error code, client type and authentication factor - for 'cannot connect' cases.
+  how: "ACCOUNT_USAGE.LOGIN_HISTORY (sql/snowflake/get_login_history.sql). Client IP returned only to platform scope."
+  rest: "GET /v1/users/{user}/snowflake/logins"
+  inputs: {user: string, days: "integer (default 5)", failures_only: "boolean (default true)", limit: "integer (default 20)"}
+  outputs: [logins: "[{timestamp, is_success, error_code, error_message, client_type, auth_factor}]"]
+  freshness: "lagged(2h)"
+  scope: support
+- id: SF-10
+  name: snowflake_get_access_history
+  domain: snowflake
+  phase: 2
+  type: read
+  summary: When the user last read a table successfully, and with which role - proves 'it used to work' and dates the regression.
+  how: "ACCOUNT_USAGE.ACCESS_HISTORY flattened on base_objects_accessed (sql/snowflake/get_access_history.sql)"
+  rest: "GET /v1/users/{user}/snowflake/tables/{table}/access-history"
+  inputs: {user: string, table: string, days: "integer (default 30)"}
+  outputs: [last_success_at, last_success_role, access_count, policies_referenced]
+  freshness: "lagged(3h)"
+  scope: support
+- id: SF-11
+  name: snowflake_get_iceberg_table_health
+  domain: snowflake
+  phase: 2
+  type: read
+  summary: For Iceberg tables - catalog integration, external volume reachability, auto-refresh state and last refreshed snapshot.
+  how: "SHOW ICEBERG TABLES, SYSTEM$AUTO_REFRESH_STATUS, SYSTEM$VERIFY_EXTERNAL_VOLUME, SYSTEM$GET_ICEBERG_TABLE_INFORMATION"
+  rest: "GET /v1/snowflake/tables/{table}/iceberg-health"
+  inputs: {table: string}
+  outputs: [catalog_integration, external_volume, volume_reachable, auto_refresh_state, last_refresh_at, current_metadata_location]
+  freshness: live
+  scope: support
+  verify: true
+- id: SF-12
+  name: snowflake_get_warehouse_access
+  domain: snowflake
+  phase: 2
+  type: read
+  summary: Warehouses the user can use, their state, and whether a resource monitor has suspended them.
+  how: "GRANTS_TO_ROLES (granted_on WAREHOUSE, privilege USAGE/OPERATE) for the effective role set + SHOW WAREHOUSES"
+  rest: "GET /v1/users/{user}/snowflake/warehouses"
+  inputs: {user: string, warehouse: "string (optional)"}
+  outputs: [warehouses: "[{name, state, via_role, resource_monitor, suspended_by_monitor}]", default_warehouse_usable]
+  freshness: "lagged(2h)"
+  scope: support
+- id: SF-13
+  name: snowflake_get_grant_changes
+  domain: snowflake
+  phase: 2
+  type: read
+  summary: Grants and revokes affecting the user or table in a time window - what changed between 'worked' and 'broken'.
+  how: "GRANTS_TO_USERS / GRANTS_TO_ROLES rows with created_on or deleted_on in the window (sql/snowflake/get_grant_changes.sql)"
+  rest: "GET /v1/users/{user}/snowflake/grant-changes"
+  inputs: {user: string, table: "string (optional)", days: "integer (default 14)"}
+  outputs: [changes: "[{timestamp, action: granted|revoked, privilege, object, role, granted_by}]"]
+  freshness: "lagged(2h)"
+  scope: support
+- id: SF-14
+  name: snowflake_get_auth_policies
+  domain: snowflake
+  phase: 3
+  type: read
+  summary: Network and authentication policies that apply to the user, for IP-block and MFA/SSO failures.
+  how: "ACCOUNT_USAGE.POLICY_REFERENCES (user-level) + NETWORK_POLICIES; SHOW PARAMETERS for account defaults"
+  rest: "GET /v1/users/{user}/snowflake/auth-policies"
+  inputs: {user: string}
+  outputs: [network_policy, authentication_policy, allowed_auth_methods]
+  freshness: "lagged(2h)"
+  scope: platform
+  verify: true
+- id: SF-15
+  name: snowflake_probe_as_user
+  domain: snowflake
+  phase: 3
+  type: read
+  summary: OPTIONAL ground-truth probe - run a metadata-only count as the user through their own OAuth token, to confirm effective access. Off by default.
+  how: "Snowflake External OAuth on-behalf-of token from AgentCore Identity. Runs SELECT COUNT(*) only. See ADR-005."
+  rest: "POST /v1/users/{user}/snowflake/tables/{table}:probe"
+  inputs: {table: string, role: "string (optional)"}
+  outputs: [can_select, row_count_visible, error_code, error_message]
+  freshness: live
+  scope: self
+
+# ───────────────────────── D. Entitlements (derived, cross-system) ─────────────────────────
+- id: EN-01
+  name: entitlement_get_row_visibility
+  domain: entitlement
+  phase: 1
+  type: derived
+  summary: Row-level security answer - which accounts (or other row-scope values) the user can see on a table, and which attribute or mapping grants each.
+  how: "IM-07 row filters + IM-02 attribute values; if the policy uses a lookup table, read the entitlement mapping table (config/rls-models.yaml). Never reads business rows."
+  rest: "GET /v1/users/{user}/tables/{table}/row-visibility"
+  inputs: {user: string, table: string, platform: "string (default snowflake)"}
+  outputs: [rls_applies, scope_dimension, visible_values, visible_count, sees_all_rows, sees_no_rows, granted_by, policy_plain_english]
+  freshness: live
+  scope: support
+- id: EN-02
+  name: entitlement_get_pi_access
+  domain: entitlement
+  phase: 1
+  type: derived
+  summary: PI access answer - which PI columns are clear or masked for the user on a table (or across their tables), and what would unmask them.
+  how: "IM-11 column tags + IM-07 masked columns + SF-07 attached masking policies; exception conditions from IM-09"
+  rest: "GET /v1/users/{user}/pi-access?table={table}"
+  inputs: {user: string, table: "string (optional - omit for a summary across subscribed tables)", platform: "string (default snowflake)"}
+  outputs: [has_pi_entitlement, pi_entitlement_source, columns: "[{column, pi_category, state: clear|masked, masking_type, unmask_requires}]"]
+  freshness: live
+  scope: support
+- id: EN-03
+  name: entitlement_get_access_summary
+  domain: entitlement
+  phase: 1
+  type: derived
+  summary: One-call 360 view of a user - identity status in each system, groups, attributes, roles, subscribed data products, PI and RLS headline.
+  how: "Fan-out to ID-01, ID-03, IM-02, SF-01, SF-02, DP-04 in parallel; assemble; cache 5 min"
+  rest: "GET /v1/users/{user}/access-summary"
+  inputs: {user: string, platforms: "string[] (default all enabled)"}
+  outputs: [identity, directory_groups, immuta_entitlements, platform_roles, data_products, pi_headline, rls_headline, anomalies]
+  freshness: "cached(5m)"
+  scope: support
+- id: EN-04
+  name: entitlement_compare_users
+  domain: entitlement
+  phase: 2
+  type: derived
+  summary: Side-by-side difference between two users for one table - groups, attributes, roles, subscription - for 'my colleague can see it and I cannot'.
+  how: "EN-03 for both users + DX-01 for both; set difference. Requires support scope, or both users' consent."
+  rest: "POST /v1/entitlements:compare"
+  inputs: {user_a: string, user_b: string, table: string, platform: string}
+  outputs: [only_a, only_b, decisive_differences]
+  freshness: live
+  scope: support
+- id: EN-05
+  name: entitlement_diff_over_time
+  domain: entitlement
+  phase: 3
+  type: derived
+  summary: What changed in a user's entitlements between two dates, from stored daily access snapshots.
+  how: "Daily EN-03 snapshots written to S3 by the monitoring pipeline, queried with Athena"
+  rest: "GET /v1/users/{user}/access-summary:diff?from=&to="
+  inputs: {user: string, from: date, to: date}
+  outputs: [added, removed, changed]
+  freshness: "lagged(24h)"
+  scope: support
+
+# ─────────────────────── E. Data product catalog and telemetry ───────────────────────
+- id: DP-01
+  name: catalog_search_data_products
+  domain: catalog
+  phase: 1
+  type: read
+  summary: Find a data product or table by name, keyword or owner in the data mesh catalog.
+  how: "Data mesh catalog / registration service API (adapter interface CatalogPort; implementation depends on the existing catalog)"
+  rest: "GET /v1/data-products?query="
+  inputs: {query: string, limit: "integer (default 10)"}
+  outputs: [data_products: "[{id, name, domain, owner_team, tables}]"]
+  freshness: "cached(10m)"
+  scope: self
+- id: DP-02
+  name: catalog_get_data_product
+  domain: catalog
+  phase: 1
+  type: read
+  summary: Data product detail and access contract - owner, tables, storage format, platforms it is registered on, required AD group and attributes.
+  how: "Catalog API + config/access-contracts overrides"
+  rest: "GET /v1/data-products/{data_product_id}"
+  inputs: {data_product_id: string}
+  outputs: [name, owner_team, steward, format: "iceberg|parquet", s3_location, platforms, tables, access_contract: "{groups, attributes, pi_group, request_route}"]
+  freshness: "cached(10m)"
+  scope: self
+- id: DP-03
+  name: catalog_get_registration_status
+  domain: catalog
+  phase: 2
+  type: read
+  summary: Whether a producer table is registered on each consumer platform and in Immuta, and the state of the last registration run.
+  how: "Registration pipeline status store (Step Functions execution history / DynamoDB status table)"
+  rest: "GET /v1/data-products/{data_product_id}/registration"
+  inputs: {data_product_id: string, table: "string (optional)"}
+  outputs: [registrations: "[{platform, object_name, state, last_run_at, last_error}]", immuta_registered]
+  freshness: live
+  scope: self
+- id: DP-04
+  name: telemetry_get_user_access
+  domain: telemetry
+  phase: 1
+  type: read
+  summary: Tables and data products the user has access to according to platform telemetry - the fast inventory answer to 'what can I access'.
+  how: "Telemetry store query (TelemetryPort adapter - Snowflake table or Athena, per the existing telemetry design)"
+  rest: "GET /v1/users/{user}/data-products"
+  inputs: {user: string, platform: "string (optional)"}
+  outputs: [data_products: "[{id, name, platform, tables, access_since}]", as_of]
+  freshness: "lagged(per telemetry SLA)"
+  scope: support
+- id: DP-05
+  name: telemetry_get_user_usage
+  domain: telemetry
+  phase: 2
+  type: read
+  summary: What the user actually queried recently - tables, counts, last used - to separate 'has access' from 'uses'.
+  how: "Telemetry store; falls back to SF-10 / DB-04"
+  rest: "GET /v1/users/{user}/usage"
+  inputs: {user: string, days: "integer (default 30)"}
+  outputs: [usage: "[{table, platform, query_count, last_used_at}]"]
+  freshness: "lagged(per telemetry SLA)"
+  scope: support
+- id: DP-06
+  name: telemetry_get_data_product_health
+  domain: telemetry
+  phase: 2
+  type: read
+  summary: Freshness and pipeline status of a data product, so 'no data' is not misdiagnosed as an access problem.
+  how: "Producer pipeline telemetry / data quality store"
+  rest: "GET /v1/data-products/{data_product_id}/health"
+  inputs: {data_product_id: string}
+  outputs: [last_successful_load, freshness_sla_met, open_incidents]
+  freshness: "lagged(per telemetry SLA)"
+  scope: self
+
+# ───────────────────────────── F. Producer storage (AWS) ─────────────────────────────
+- id: AW-01
+  name: aws_get_glue_table
+  domain: aws
+  phase: 3
+  type: read
+  summary: Glue Data Catalog entry for the producer table - exists, table type, location, last update.
+  how: "glue:GetTable through a cross-account read role in the producer account"
+  rest: "GET /v1/aws/glue/tables/{database}/{table}"
+  inputs: {database: string, table: string, account: "string (optional)"}
+  outputs: [exists, table_type, location, metadata_location, updated_at]
+  freshness: live
+  scope: platform
+- id: AW-02
+  name: aws_get_iceberg_metadata_status
+  domain: aws
+  phase: 3
+  type: read
+  summary: Current Iceberg snapshot of the producer table - snapshot id, commit time, metadata file - to compare with what the consumer platform sees.
+  how: "Read Glue metadata_location, then the metadata JSON from S3 (PyIceberg, read-only)"
+  rest: "GET /v1/aws/iceberg/tables/{database}/{table}"
+  inputs: {database: string, table: string}
+  outputs: [current_snapshot_id, last_commit_at, metadata_location, schema_id]
+  freshness: live
+  scope: platform
+- id: AW-03
+  name: aws_check_storage_access_path
+  domain: aws
+  phase: 3
+  type: read
+  summary: Can the consumer platform's storage role still read the producer bucket - IAM, bucket policy and KMS key policy evaluation.
+  how: "iam:SimulatePrincipalPolicy for s3:GetObject / kms:Decrypt on the table prefix; bucket and key policy inspection"
+  rest: "POST /v1/aws/storage-access:check"
+  inputs: {platform: string, table: string}
+  outputs: [role_arn, s3_allowed, kms_allowed, denying_statement]
+  freshness: live
+  scope: platform
+
+# ─────────────────────────────────── G. Databricks ───────────────────────────────────
+- id: DB-01
+  name: databricks_get_user
+  domain: databricks
+  phase: 3
+  type: read
+  summary: Databricks account user - active or not, groups, workspace assignment.
+  how: "Account SCIM API /api/2.1/accounts/{account_id}/scim/v2/Users?filter=userName eq ..."
+  rest: "GET /v1/users/{user}/databricks"
+  inputs: {user: string}
+  outputs: [found, active, groups, workspaces]
+  freshness: live
+  scope: support
+- id: DB-02
+  name: databricks_get_effective_permissions
+  domain: databricks
+  phase: 3
+  type: read
+  summary: Effective Unity Catalog privileges for the user on a table, including those inherited from schema and catalog.
+  how: "GET /api/2.1/unity-catalog/effective-permissions/table/{full_name}?principal={user} (paginated)"
+  rest: "GET /v1/users/{user}/databricks/tables/{table}/privileges"
+  inputs: {user: string, table: string}
+  outputs: [privileges: "[{privilege, inherited_from}]", can_select, has_use_catalog, has_use_schema]
+  freshness: live
+  scope: support
+- id: DB-03
+  name: databricks_list_accessible_tables
+  domain: databricks
+  phase: 3
+  type: read
+  summary: Unity Catalog tables the user can read.
+  how: "system.information_schema.table_privileges for the user and their groups, via a SQL warehouse"
+  rest: "GET /v1/users/{user}/databricks/tables"
+  inputs: {user: string, catalog: "string (optional)", limit: "integer (default 200)"}
+  outputs: [tables: "[{catalog, schema, table, via_principal}]", total]
+  freshness: live
+  scope: support
+- id: DB-04
+  name: databricks_get_failed_queries
+  domain: databricks
+  phase: 3
+  type: read
+  summary: The user's recent failed queries on SQL warehouses and serverless compute.
+  how: "system.query.history where execution_status = FAILED. Query text is masked by default from 2026-08 unless the service principal is in databricks_pii_access."
+  rest: "GET /v1/users/{user}/databricks/failed-queries"
+  inputs: {user: string, days: "integer (default 5)", limit: "integer (default 10)"}
+  outputs: [queries: "[{statement_id, start_time, error_message, error_class, compute, workspace_id}]"]
+  freshness: "lagged(minutes-hours)"
+  scope: support
+  verify: true
+- id: DB-05
+  name: databricks_get_table_policies
+  domain: databricks
+  phase: 3
+  type: read
+  summary: Row filters and column masks attached to a Unity Catalog table.
+  how: "Unity Catalog GET /api/2.1/unity-catalog/tables/{full_name} (row_filter, columns[].mask) or information_schema.row_filters / column_masks"
+  rest: "GET /v1/databricks/tables/{table}/policies"
+  inputs: {table: string}
+  outputs: [row_filter, column_masks, immuta_managed]
+  freshness: live
+  scope: support
+- id: DB-06
+  name: databricks_get_table_status
+  domain: databricks
+  phase: 3
+  type: read
+  summary: Table existence, type (managed, external, foreign), storage location, and catalog-to-workspace binding.
+  how: "Unity Catalog tables API + workspace bindings API"
+  rest: "GET /v1/databricks/tables/{table}"
+  inputs: {table: string}
+  outputs: [exists, table_type, data_source_format, storage_location, bound_workspaces, owner]
+  freshness: live
+  scope: self
+- id: DB-07
+  name: databricks_get_audit_events
+  domain: databricks
+  phase: 3
+  type: read
+  summary: Unity Catalog audit events for permission denials and grant changes affecting the user.
+  how: "system.access.audit filtered on user identity and action names"
+  rest: "GET /v1/users/{user}/databricks/audit-events"
+  inputs: {user: string, days: "integer (default 7)"}
+  outputs: [events: "[{timestamp, action, status, detail}]"]
+  freshness: "lagged(minutes-hours)"
+  scope: support
+
+# ──────────────────────────────────── H. Starburst ───────────────────────────────────
+- id: SB-01
+  name: starburst_get_user_roles
+  domain: starburst
+  phase: 3
+  type: read
+  summary: Roles and groups the user holds in Starburst.
+  how: "Starburst built-in access control REST API, or the group provider configuration"
+  rest: "GET /v1/users/{user}/starburst/roles"
+  inputs: {user: string}
+  outputs: [roles, groups]
+  freshness: live
+  scope: support
+  verify: true
+- id: SB-02
+  name: starburst_check_table_access
+  domain: starburst
+  phase: 3
+  type: derived
+  summary: Whether the user should be able to read a Starburst table - Immuta decision plus catalog visibility.
+  how: "Immuta is the system access control via the Immuta Trino plugin, so IM-05 + IM-07 for the Starburst data source decide; plus SB-04"
+  rest: "GET /v1/users/{user}/starburst/tables/{table}/access"
+  inputs: {user: string, table: string}
+  outputs: [expected_access, immuta_state, catalog_visible]
+  freshness: live
+  scope: support
+- id: SB-03
+  name: starburst_get_failed_queries
+  domain: starburst
+  phase: 3
+  type: read
+  summary: The user's recent failed Starburst queries with error type and message.
+  how: "Starburst query history (Insights / query logger backend database); system.runtime.queries only covers recent in-memory history"
+  rest: "GET /v1/users/{user}/starburst/failed-queries"
+  inputs: {user: string, days: "integer (default 5)", limit: "integer (default 10)"}
+  outputs: [queries: "[{query_id, created, error_type, error_code, error_message, catalog, schema}]"]
+  freshness: "lagged(minutes)"
+  scope: support
+  verify: true
+- id: SB-04
+  name: starburst_get_table_status
+  domain: starburst
+  phase: 3
+  type: read
+  summary: Whether the catalog, schema and table are visible in Starburst and what connector serves them.
+  how: "information_schema.tables in the target catalog + SHOW CATALOGS, through a service account"
+  rest: "GET /v1/starburst/tables/{table}"
+  inputs: {table: string}
+  outputs: [catalog_exists, table_exists, connector, table_type]
+  freshness: live
+  scope: self
+
+# ───────────────────────── I. Diagnosis (deterministic composites) ─────────────────────────
+- id: DX-01
+  name: diagnose_table_access
+  domain: diagnosis
+  phase: 1
+  type: derived
+  summary: Runs the whole access chain for one user and one table and returns expected-versus-actual access, root cause codes and next actions.
+  how: "caa_core.diagnosis engine: layers L0-L5 in docs/06, calling the tools above in parallel. Deterministic; the LLM explains the result, it does not compute it."
+  rest: "POST /v1/diagnoses/table-access"
+  inputs: {user: string, table: string, platform: "snowflake|databricks|starburst", query_id: "string (optional)"}
+  outputs: [verdict, expected_access, actual_access, layers: "[{layer, status, findings}]", root_causes: "[{code, confidence, evidence_refs}]", next_actions]
+  freshness: live
+  scope: support
+- id: DX-02
+  name: diagnose_failed_query
+  domain: diagnosis
+  phase: 1
+  type: derived
+  summary: Classifies a failed query (access, session context, SQL error, compute, data availability) and, if access-related, runs DX-01 for the tables involved.
+  how: "Error-code map config/error-catalog.yaml + SF-06 + sqlglot table extraction + DX-01"
+  rest: "POST /v1/diagnoses/failed-query"
+  inputs: {query_id: "string (optional)", user: "string (optional)", platform: string}
+  outputs: [error_class, tables_involved, session_context, diagnosis, next_actions]
+  freshness: "lagged(45m)"
+  scope: support
+- id: DX-03
+  name: diagnose_row_visibility
+  domain: diagnosis
+  phase: 2
+  type: derived
+  summary: Explains why a user sees no rows or fewer rows than expected - expected scope versus granted scope.
+  how: "EN-01 + expected value(s) supplied by the user + ID-06/SF-13 for recent changes"
+  rest: "POST /v1/diagnoses/row-visibility"
+  inputs: {user: string, table: string, expected_values: "string[] (optional, e.g. account ids)"}
+  outputs: [verdict, visible_values, missing_values, cause, next_actions]
+  freshness: live
+  scope: support
+- id: DX-04
+  name: diagnose_masked_columns
+  domain: diagnosis
+  phase: 2
+  type: derived
+  summary: Explains why specific columns are masked or NULL for a user and what entitlement would unmask them.
+  how: "EN-02 scoped to the named columns + IM-09 exceptions"
+  rest: "POST /v1/diagnoses/masked-columns"
+  inputs: {user: string, table: string, columns: "string[] (optional)"}
+  outputs: [verdict, columns: "[{column, state, reason, unmask_requires}]", next_actions]
+  freshness: live
+  scope: support
+- id: DX-05
+  name: diagnose_login_failure
+  domain: diagnosis
+  phase: 2
+  type: derived
+  summary: Explains why a user cannot connect - disabled account, locked, network policy, expired credential, SSO or key-pair problem.
+  how: "ID-02 + SF-01 + SF-09 (+ SF-14) against config/error-catalog.yaml"
+  rest: "POST /v1/diagnoses/login-failure"
+  inputs: {user: string, platform: string}
+  outputs: [verdict, cause, next_actions]
+  freshness: "lagged(2h)"
+  scope: support
+
+# ───────────────────────────── J. Proactive monitoring ───────────────────────────────
+- id: MN-01
+  name: monitor_get_platform_status
+  domain: monitoring
+  phase: 2
+  type: read
+  summary: Current known incidents and degradations across Immuta, Snowflake, Databricks, Starburst and directory sync - always checked first.
+  how: "DynamoDB table caa-findings (open findings of severity major+) + vendor status feeds where available"
+  rest: "GET /v1/platform-status"
+  inputs: {platform: "string (optional)"}
+  outputs: [overall, incidents: "[{id, platform, severity, summary, started_at, affected_scope}]"]
+  freshness: "cached(1m)"
+  scope: self
+- id: MN-02
+  name: monitor_get_findings
+  domain: monitoring
+  phase: 2
+  type: read
+  summary: Findings from the scheduled checks - entitlement drift, sync lag, stale Iceberg refresh, failure spikes - for a user, table or data product.
+  how: "DynamoDB caa-findings queried by GSI on subject / object"
+  rest: "GET /v1/findings"
+  inputs: {user: "string (optional)", table: "string (optional)", data_product_id: "string (optional)", status: "open|resolved|all"}
+  outputs: [findings: "[{id, check, severity, subject, object, detected_at, detail}]"]
+  freshness: live
+  scope: support
+
+# ─────────────────────────── K. Workflow and knowledge ───────────────────────────────
+- id: WF-01
+  name: kb_search
+  domain: workflow
+  phase: 1
+  type: read
+  summary: Search runbooks, access guides, FAQs and platform documentation.
+  how: "Amazon Bedrock Knowledge Bases Retrieve API over the S3 docs corpus"
+  rest: "GET /v1/kb/search?query="
+  inputs: {query: string, top_k: "integer (default 5)"}
+  outputs: [results: "[{title, snippet, source_uri, score}]"]
+  freshness: "lagged(sync schedule)"
+  scope: self
+- id: WF-02
+  name: kb_get_error_reference
+  domain: workflow
+  phase: 1
+  type: read
+  summary: Curated meaning, likely causes and standard fix for a platform error code or message pattern.
+  how: "Lookup in config/error-catalog.yaml (versioned in git)"
+  rest: "GET /v1/kb/errors/{platform}/{code}"
+  inputs: {platform: string, code: "string (code or message text)"}
+  outputs: [error_class, meaning, likely_causes, playbook]
+  freshness: live
+  scope: self
+- id: WF-03
+  name: itsm_search_tickets
+  domain: workflow
+  phase: 2
+  type: read
+  summary: The user's open or recent access requests and incidents in the ITSM tool, to avoid duplicates and to check approval status.
+  how: "ITSM REST API (ServiceNow Table API or Jira Service Management) through the ItsmPort adapter"
+  rest: "GET /v1/users/{user}/tickets"
+  inputs: {user: string, type: "access_request|incident|all", status: "open|all"}
+  outputs: [tickets: "[{id, type, state, short_description, opened_at, assignment_group}]"]
+  freshness: live
+  scope: support
+- id: WF-04
+  name: itsm_create_ticket
+  domain: workflow
+  phase: 2
+  type: write
+  summary: Raise an incident or access request pre-filled with the diagnosis and evidence. Requires explicit user confirmation in chat.
+  how: "ITSM REST API create; idempotency key = conversation id + diagnosis id"
+  rest: "POST /v1/tickets"
+  inputs: {type: "incident|access_request", diagnosis_id: string, summary: string, assignment_group: "string (optional)"}
+  outputs: [ticket_id, url, state]
+  freshness: live
+  scope: self
+- id: WF-05
+  name: iam_get_access_request_status
+  domain: workflow
+  phase: 2
+  type: read
+  summary: Status of an AD group membership request in the identity governance tool - submitted, awaiting approver, provisioned.
+  how: "Identity governance API (for example SailPoint or Saviynt) through the IgaPort adapter"
+  rest: "GET /v1/users/{user}/group-requests"
+  inputs: {user: string, group: "string (optional)"}
+  outputs: [requests: "[{group, state, submitted_at, approver, provisioned_at}]"]
+  freshness: live
+  scope: support
+- id: WF-06
+  name: notify_platform_team
+  domain: workflow
+  phase: 2
+  type: write
+  summary: Send a structured escalation with the evidence pack to the owning platform team's channel. Requires confirmation.
+  how: "SNS topic per team -> Teams/Slack webhook"
+  rest: "POST /v1/escalations"
+  inputs: {team: string, diagnosis_id: string, note: "string (optional)"}
+  outputs: [message_id]
+  freshness: live
+  scope: support
+- id: WF-07
+  name: report_security_finding
+  domain: workflow
+  phase: 2
+  type: write
+  summary: Silently file an over-entitlement finding (actual access exceeds expected access) to the governance queue. Called by the engine, not offered to end users.
+  how: "DynamoDB caa-findings + SNS governance topic"
+  rest: "POST /v1/findings"
+  inputs: {diagnosis_id: string}
+  outputs: [finding_id]
+  freshness: live
+  scope: platform
+
+# ─────────────────────────── L. Consumer onboarding (Phase 4) ─────────────────────────
+- id: OB-01
+  name: onboarding_get_prerequisites
+  domain: onboarding
+  phase: 4
+  type: derived
+  summary: Everything a new consumer needs for a data product on a chosen platform - accounts, AD groups, attributes, training, network - as an ordered checklist.
+  how: "DP-02 access contract + platform prerequisite templates in config/onboarding/"
+  rest: "GET /v1/onboarding/prerequisites?data_product_id=&platform="
+  inputs: {data_product_id: string, platform: string}
+  outputs: [steps: "[{order, title, why, how_to_request, typical_lead_time, automatable}]"]
+  freshness: "cached(10m)"
+  scope: self
+- id: OB-02
+  name: onboarding_get_checklist_status
+  domain: onboarding
+  phase: 4
+  type: derived
+  summary: Which prerequisites this user has already completed and which are outstanding, checked live against every system.
+  how: "OB-01 steps each mapped to a verifying tool (ID-04, IM-05, SF-01, SF-03 ...)"
+  rest: "GET /v1/users/{user}/onboarding/status?data_product_id=&platform="
+  inputs: {user: string, data_product_id: string, platform: string}
+  outputs: [steps: "[{order, title, state: done|pending|blocked, evidence}]", percent_complete, next_step]
+  freshness: live
+  scope: self
+- id: OB-03
+  name: onboarding_generate_sample_code
+  domain: onboarding
+  phase: 4
+  type: derived
+  summary: Working starter code to connect and query a data product in the consumer's language and platform, using the organisation's approved connection pattern.
+  how: "Reviewed templates in templates/sample-code/{platform}/{language} rendered with table and connection parameters. The LLM may adapt but not invent connection patterns."
+  rest: "POST /v1/onboarding/sample-code"
+  inputs: {data_product_id: string, table: "string (optional)", platform: string, language: "python|pyspark|snowpark|java|scala|r|sql|dbt", auth_method: "sso|keypair|oauth|pat"}
+  outputs: [files: "[{path, content}]", notes, prerequisites]
+  freshness: live
+  scope: self
+- id: OB-04
+  name: onboarding_get_connection_profile
+  domain: onboarding
+  phase: 4
+  type: read
+  summary: Connection details for a platform - account URL, recommended warehouse or compute, role conventions, driver versions, PrivateLink endpoint.
+  how: "config/onboarding/connection-profiles.yaml per environment"
+  rest: "GET /v1/onboarding/connection-profiles/{platform}"
+  inputs: {platform: string, environment: "dev|test|prod"}
+  outputs: [account_identifier, host, recommended_compute, role_conventions, drivers, network_notes]
+  freshness: live
+  scope: self
+- id: OB-05
+  name: onboarding_start_access_request
+  domain: onboarding
+  phase: 4
+  type: write
+  summary: Submit the access requests needed for a data product (AD group, Immuta subscription) on the user's behalf. Requires confirmation.
+  how: "IgaPort / ItsmPort create + Immuta POST /dataSource/subscribe where the policy allows requests"
+  rest: "POST /v1/onboarding/access-requests"
+  inputs: {data_product_id: string, platform: string, justification: string}
+  outputs: [requests: "[{system, id, url, state}]"]
+  freshness: live
+  scope: self

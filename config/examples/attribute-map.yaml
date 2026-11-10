@@ -1,0 +1,20 @@
+# Attributes that drive Immuta policies, and where each is mastered.
+attributes:
+  - immuta_name: AccountAccess
+    meaning: Accounts whose rows the user may see
+    source: directory                      # directory | immuta | external_endpoint
+    directory_attribute: extension_caa_accountAccess     # placeholder
+    multi_valued: true
+    sensitive_values: true                 # values are not logged in plain text
+  - immuta_name: Region
+    meaning: Business region
+    source: directory
+    directory_attribute: extension_caa_region
+    multi_valued: true
+  - immuta_name: PIAccess
+    meaning: Level of personal information the user may see unmasked
+    source: group                          # arrives as an attribute attached to an Immuta group
+    via_group_pattern: "DM-PI-*"
+matching:
+  group_names_case_sensitive: true         # VERIFY in CAA-003
+  attribute_values_case_sensitive: true

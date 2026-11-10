@@ -1,0 +1,66 @@
+# Platform error -> class -> playbook. Seed list only: extend from the top failures in your
+# own query history (spike CAA-003, V14). Matching order: code, then message regex.
+snowflake:
+  - code: "002003"
+    message_regex: "does not exist or not authorized"
+    error_class: authorization_or_missing_object
+    meaning: The object is missing, or the session's roles cannot see it. Snowflake does not say which.
+    likely_causes: [SES-001, DIR-001, ENF-002, DAT-001, DAT-002]
+    playbook: PB-01
+  - code: "003001"
+    message_regex: "Insufficient privileges"
+    error_class: authorization
+    meaning: The session's roles lack a privilege on a named object.
+    likely_causes: [SES-002, ENF-004, ENF-002]
+    playbook: PB-01
+  - code: "000606"
+    message_regex: "No active warehouse selected"
+    error_class: session_no_warehouse
+    meaning: The session has no warehouse to run the query.
+    likely_causes: [SES-003]
+    playbook: PB-09
+  - message_regex: "does not have a current (database|schema)"
+    error_class: session_no_context
+    meaning: The object name was not fully qualified and the session has no default database or schema.
+    likely_causes: [SES-004]
+    playbook: PB-09
+  - code: "001003"
+    message_regex: "syntax error"
+    error_class: sql_error
+    meaning: The SQL is not valid. Not an access problem.
+    likely_causes: [QRY-001]
+    playbook: PB-11
+  - code: "000904"
+    message_regex: "invalid identifier"
+    error_class: sql_error_or_schema_change
+    meaning: A column or alias is not recognised. May be a typo or a schema change by the producer.
+    likely_causes: [QRY-001, DAT-005]
+    playbook: PB-08
+  - code: "000630"
+    message_regex: "reached its (statement|warehouse) timeout"
+    error_class: compute_timeout
+    meaning: The query ran longer than the allowed time.
+    likely_causes: [QRY-002]
+    playbook: PB-09
+  - message_regex: "(resource monitor|quota).*(suspend|exceed)"
+    error_class: compute_quota
+    meaning: The warehouse was suspended by a resource monitor.
+    likely_causes: [QRY-003]
+    playbook: PB-09
+  - message_regex: "(external volume|remote file|access denied).*(S3|storage|KMS)?"
+    error_class: storage_access
+    meaning: Snowflake could not read the table's files in the producer's storage.
+    likely_causes: [DAT-004, DAT-003]
+    playbook: PB-08
+snowflake_login:
+  - code: "390100"
+    error_class: login_failure
+    meaning: User name or credential rejected.
+    likely_causes: [IDN-006]
+    playbook: PB-04
+  - code: "390422"
+    error_class: login_network_policy
+    meaning: The client address is not allowed by a network policy.
+    playbook: PB-04
+databricks: []     # fill in Phase 3
+starburst: []      # fill in Phase 3

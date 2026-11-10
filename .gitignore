@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.p8
+*.key
+
+# IaC / tooling
+cdk.out/
+.terraform/
+*.tfstate*
+node_modules/
+
+# Diagram build scratch
+diagrams/_badges/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

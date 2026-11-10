@@ -1,0 +1,19 @@
+# How row-level security is implemented per table, so EN-01 can turn a policy into
+# "these are the accounts you can see" without reading data. First match wins.
+models:
+  - match: { platform: snowflake, table: "SALES.CURATED.*" }
+    model: attribute
+    scope_dimension: account_id
+    attribute: AccountAccess
+    all_values_token: "ALL"
+  - match: { platform: snowflake, table: "FINANCE.CURATED.LEDGER" }
+    model: lookup_table
+    scope_dimension: account_id
+    lookup:
+      table: GOV.ENTITLEMENTS.USER_ACCOUNT_MAP          # service role needs SELECT on this table only
+      user_column: USER_NAME
+      value_column: ACCOUNT_ID
+  - match: { platform: "*", table: "*" }
+    model: unknown                                       # EN-01 returns the policy text and a warning
+limits:
+  max_values_returned: 200

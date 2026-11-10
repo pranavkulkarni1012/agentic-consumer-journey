@@ -1,0 +1,17 @@
+# Expected propagation time per hop and the lag of each observation source.
+# The engine uses these for the propagation rule and the lag rule (docs/06 section 2).
+# Values are placeholders: measure real ones (monitor check MC-03) and agree SLOs with owners.
+propagation:
+  directory_to_immuta:   { typical_minutes: 30, max_minutes: 60 }
+  immuta_to_snowflake:   { typical_minutes: 5,  max_minutes: 15 }
+  immuta_to_databricks:  { typical_minutes: 5,  max_minutes: 15 }
+  immuta_to_starburst:   { typical_minutes: 1,  max_minutes: 5 }
+source_lag:
+  snowflake.account_usage.query_history:     { max_minutes: 45 }
+  snowflake.account_usage.grants_to_roles:   { max_minutes: 120 }
+  snowflake.account_usage.grants_to_users:   { max_minutes: 120 }
+  snowflake.account_usage.users:             { max_minutes: 120 }
+  snowflake.account_usage.policy_references: { max_minutes: 120 }
+  snowflake.account_usage.access_history:    { max_minutes: 180 }
+  snowflake.account_usage.login_history:     { max_minutes: 120 }
+recreate_window_days: 14

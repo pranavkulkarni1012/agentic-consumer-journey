@@ -1,0 +1,4 @@
+# Directory groups relevant to data-mesh access. ID-03 returns only these unless include_all=true.
+include_prefixes: ["DM-", "SNOW-", "DBX-", "SBX-"]     # placeholders
+exclude_patterns: ["*-TEST-*"]
+pi_group_pattern: "DM-PI-*"

@@ -1,0 +1,19 @@
+# Where each kind of request is raised. Used to build next_actions. Placeholders.
+routes:
+  ad_group:
+    system: iga
+    url_template: "https://<iga-host>/request?item={group}"
+    approvers: ["line manager", "data owner"]
+  attribute:
+    system: itsm
+    catalog_item: "Data mesh attribute change"
+  immuta_subscription:
+    system: immuta
+    url_template: "https://<immuta-host>/#/data-source/{data_source_id}"
+  platform_account:
+    snowflake: { system: itsm, catalog_item: "Snowflake onboarding" }
+escalation_teams:
+  immuta_admin:       { sns_topic: "caa-escalate-immuta",    itsm_group: "<group>" }
+  snowflake_platform: { sns_topic: "caa-escalate-snowflake", itsm_group: "<group>" }
+  iam:                { sns_topic: "caa-escalate-iam",       itsm_group: "<group>" }
+  governance:         { sns_topic: "caa-governance",         itsm_group: "<group>" }

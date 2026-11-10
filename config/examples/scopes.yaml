@@ -1,0 +1,23 @@
+# Maps identity-provider group claims to assistant scopes. Highest scope wins.
+scopes:
+  self:
+    description: Any authenticated employee. Own access only.
+    granted_to: ["*"]
+  support:
+    description: Platform helpdesk. Read-only diagnostics for any user.
+    granted_to: ["CAA-SUPPORT"]            # placeholder group name
+  steward:
+    description: Data stewards and data product owners. Limited to owned data products.
+    granted_to: ["CAA-STEWARD"]
+    ownership_source: catalog              # steward-of relationship comes from DP-02
+  platform:
+    description: Platform engineers. All tools.
+    granted_to: ["CAA-PLATFORM"]
+machine_clients:
+  # MCP/REST clients that are not humans. Must present a human token to act for a human.
+  - client_id: "sre-monitoring-agent"
+    scopes: [platform]
+    allowed_tools: ["monitor_*", "immuta_get_integration_status"]
+rate_limits:
+  self:     { conversations_per_hour: 20, tool_calls_per_hour: 300 }
+  support:  { conversations_per_hour: 60, tool_calls_per_hour: 1500 }
