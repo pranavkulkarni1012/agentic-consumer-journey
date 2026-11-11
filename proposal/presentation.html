@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consumer Access Assistant - Proposal</title>
+<style>
+:root{--ink:#13242B;--teal:#0F4C5C;--tint:#EEF4F5;--orange:#E36414;--mid:#5F8A8B;--pale:#D7E5E7;--grey:#5C6B73;--white:#FFFFFF;
+  --head:Cambria,Georgia,"Times New Roman",serif;--body:Calibri,Carlito,"Segoe UI",Arial,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#0b1a1f;font-family:var(--body);color:var(--ink)}
+.viewport{position:fixed;inset:0;overflow:hidden}
+.stage{position:absolute;width:1280px;height:720px;transform-origin:0 0}
+.slide{position:absolute;inset:0;background:var(--white);padding:38px 64px 0;display:none;flex-direction:column}
+.slide.active{display:flex}
+.slide.dark{background:var(--teal);color:var(--white)}
+h1{font-family:var(--head);font-size:78px;line-height:1.1;font-weight:700}
+h2{font-family:var(--head);font-size:60px;line-height:1.12;font-weight:700;color:var(--teal);margin-bottom:14px}
+.dark h2{color:var(--white)}
+h3{font-size:26px;font-weight:700;color:var(--teal)}
+h4{font-size:25px;font-weight:700;color:var(--teal);margin:20px 0 12px}
+p{font-size:23px;line-height:1.28}
+.lead{font-size:24.5px}
+.footnote{font-size:17.5px;font-style:italic;color:var(--grey);margin-top:12px}
+.dark .footnote{color:var(--pale)}
+footer{margin-top:auto;display:flex;justify-content:space-between;font-size:15.5px;color:var(--grey);padding:0 0 18px}
+.dark footer{color:var(--pale)}
+/* title */
+.title-slide{padding-top:76px}
+.kicker{font-size:19px;font-weight:700;letter-spacing:.2em;color:var(--pale)}
+.title-slide h1{margin-top:44px}
+.subtitle{font-size:33px;color:var(--pale);margin-top:22px;max-width:1050px}
+.audience{font-size:19.5px;color:var(--pale);margin-top:auto;padding-bottom:62px}
+/* chain motif */
+.chain{list-style:none;display:grid;grid-template-columns:repeat(6,1fr);margin:22px 0 18px;position:relative}
+.chain li{display:flex;flex-direction:column;align-items:center;text-align:center;position:relative;padding:0 8px}
+.chain li:not(:last-child)::after{content:"";position:absolute;top:33px;left:calc(50% + 34px);width:calc(100% - 68px);height:3px;background:var(--mid)}
+.dot{width:68px;height:68px;border-radius:50%;background:var(--teal);color:var(--white);font-family:var(--head);font-weight:700;font-size:26px;display:flex;align-items:center;justify-content:center;flex:none}
+.chain .broken .dot{background:var(--orange)}
+.chain .name{font-weight:700;font-size:21.5px;margin-top:10px}
+.chain .sub{font-size:17.5px;color:var(--grey);margin-top:4px;line-height:1.25}
+.dark .chain{margin-top:auto}
+.dark .chain .dot{background:var(--mid);width:80px;height:80px}
+.dark .chain .broken .dot{background:var(--orange)}
+.dark .chain li:not(:last-child)::after{top:39px;left:calc(50% + 40px);width:calc(100% - 80px)}
+.dark .chain .name{color:var(--white)}
+.chain--detail li:not(:last-child)::after{top:33px}
+/* cards */
+.cards{display:grid;gap:26px}
+.cards.three{grid-template-columns:repeat(3,1fr)}
+.cards.four{grid-template-columns:repeat(4,1fr)}
+.card{background:var(--tint);border-radius:10px;padding:20px 22px 22px}
+.card-head{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+.card-head .dot{width:52px;height:52px;font-size:21px}
+.ico{width:54px;height:54px;border-radius:50%;background:var(--teal);color:var(--white);display:flex;align-items:center;justify-content:center;font-size:23px;flex:none}
+.ico.warn{background:var(--orange)}
+.steps{margin-top:4px;gap:38px}
+.steps .card{position:relative}
+.steps .card:not(:last-child)::after{content:"";position:absolute;right:-30px;top:50%;margin-top:-10px;border:10px solid transparent;border-left:14px solid var(--mid);border-right:0}
+.verdicts .card{background:var(--teal);color:var(--white);padding:16px 20px 18px}
+.verdicts .card.warn{background:var(--orange)}
+.verdicts .tag{font-size:19px;font-weight:700;color:var(--pale);margin-bottom:10px}
+.verdicts .warn .tag{color:var(--white)}
+/* split layouts */
+.split{display:grid;grid-template-columns:590px 1fr;gap:40px;margin-top:4px}
+.layers{display:flex;flex-direction:column}
+.layer{background:var(--tint);border-radius:10px;min-height:80px;display:grid;grid-template-columns:132px 1fr;align-items:center;padding:8px 20px;font-size:21.5px;line-height:1.22}
+.layer .tag{font-size:15px;font-weight:700;letter-spacing:.09em;color:var(--mid)}
+.layer.key{background:var(--teal);color:var(--white)}
+.layer.key .tag{color:var(--pale)}
+.layer.external{background:var(--white);border:2px dashed var(--mid)}
+.down{height:22px;position:relative}
+.down::after{content:"";position:absolute;left:50%;top:3px;margin-left:-11px;border:11px solid transparent;border-top:14px solid var(--mid);border-bottom:0}
+.rows{list-style:none;display:flex;flex-direction:column;gap:30px}
+.rows li{display:flex;gap:20px;align-items:flex-start}
+.rows p{font-size:21.5px;margin-top:2px}
+.rows.big{gap:34px;margin-top:8px}
+.rows.big .ico{width:62px;height:62px;font-size:26px}
+.rows.big p{font-size:23px}
+.gains{grid-template-columns:590px 1fr;gap:50px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.stat{padding:18px 20px;min-height:196px}
+.stat .num{font-family:var(--head);font-weight:700;font-size:56px;color:var(--orange);line-height:1.1;margin-bottom:10px}
+.stat p{font-size:19.5px}
+/* roadmap */
+.phase-labels{display:grid;grid-template-columns:2fr 3fr;gap:20px;font-size:15px;font-weight:700;letter-spacing:.1em;color:var(--pale);margin:0 0 8px}
+.phase-labels .now{color:var(--orange)}
+.phases{display:grid;grid-template-columns:repeat(5,1fr);gap:20px}
+.phase{border:1.5px solid var(--mid);border-radius:10px;background:rgba(255,255,255,.1);padding:16px 16px 16px;min-height:150px}
+.phase h3{color:var(--white);font-size:21.5px}
+.phase p{font-size:19px;color:var(--pale);line-height:1.25}
+.phase .dot{width:44px;height:44px;font-size:18px;background:var(--mid)}
+.phase .card-head{gap:11px}
+.phase.now{background:var(--white);border-color:var(--white)}
+.phase.now h3{color:var(--teal)}
+.phase.now p{color:var(--ink)}
+.phase.now .dot{background:var(--orange)}
+.phase .size{font-size:17.5px;font-weight:700;color:var(--orange)!important;margin-top:10px}
+.dark h4{font-family:var(--head);color:var(--white);font-size:29px;margin:34px 0 14px}
+.asks .card{background:rgba(255,255,255,.1);border:1.5px solid var(--mid);padding:16px 18px 18px;min-height:170px}
+.asks h3{color:var(--white);font-size:22.5px}
+.asks p{font-size:20px;color:var(--pale);line-height:1.25}
+.asks .dot{width:42px;height:42px;font-size:17px;background:var(--orange)}
+.asks .card-head{gap:12px}
+/* controls */
+.controls{position:fixed;left:50%;transform:translateX(-50%);bottom:10px;display:flex;gap:8px;align-items:center;font:13px var(--body);color:#fff;background:rgba(11,26,31,.82);border-radius:8px;padding:6px 10px;z-index:5;opacity:0;transition:opacity .25s}
+.controls.on,.controls:focus-within{opacity:1}
+.controls button{background:rgba(255,255,255,.14);color:#fff;border:0;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}
+.controls button:hover{background:rgba(255,255,255,.28)}
+.notes{position:fixed;left:0;right:0;bottom:0;background:rgba(11,26,31,.96);color:#e8f0f1;padding:16px 28px 18px;font-size:16px;line-height:1.45;display:none;z-index:4;max-height:34vh;overflow:auto}
+.notes.on{display:block}
+@media print{
+  @page{size:1280px 720px;margin:0}
+  html,body{background:#fff;height:auto}
+  .viewport{position:static;overflow:visible}
+  .stage{position:static;transform:none!important;width:1280px;height:auto}
+  .slide{display:flex!important;position:relative;inset:auto;width:1280px;height:720px;page-break-after:always;break-after:page;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .controls,.notes{display:none!important}
+}
+</style>
+</head>
+<body>
+<div class="viewport"><main class="stage">
+<section class="slide dark title-slide" aria-label="Slide 1: Consumer Access Assistant">
+    <p class="kicker">PROPOSAL  |  NOVEMBER 2026</p>
+    <h1>Consumer Access Assistant</h1>
+    <p class="subtitle">Self-service answers to “why can’t I see this data?” across the data mesh</p>
+    
+  <ol class="chain">
+    
+    <li class="">
+      <span class="dot">1</span>
+      <span class="name">Identity</span>
+      
+    </li>
+    <li class="">
+      <span class="dot">2</span>
+      <span class="name">Entitlements</span>
+      
+    </li>
+    <li class="">
+      <span class="dot">3</span>
+      <span class="name">Policy</span>
+      
+    </li>
+    <li class="broken">
+      <span class="dot">?</span>
+      <span class="name">Platform grants</span>
+      
+    </li>
+    <li class="">
+      <span class="dot">5</span>
+      <span class="name">Session</span>
+      
+    </li>
+    <li class="">
+      <span class="dot">6</span>
+      <span class="name">Data</span>
+      
+    </li>
+  </ol>
+    <p class="audience">For senior management, the product owner and architecture review</p>
+  </section>
+<section class="slide" aria-label="Slide 2: One error, six places to look">
+    <h2>One error, six places to look</h2>
+    <p class="lead">A consumer can read a table only when six things are all true. When one breaks, they see a generic error, zero rows or masked values. Nothing tells them which one.</p>
+    
+  <ol class="chain chain--detail">
+    
+    <li class="">
+      <span class="dot">1</span>
+      <span class="name">Identity</span>
+      <span class="sub">AD / Entra ID account</span>
+    </li>
+    <li class="">
+      <span class="dot">2</span>
+      <span class="name">Entitlements</span>
+      <span class="sub">AD groups and attributes</span>
+    </li>
+    <li class="">
+      <span class="dot">3</span>
+      <span class="name">Policy</span>
+      <span class="sub">Immuta subscription and data policies</span>
+    </li>
+    <li class="broken">
+      <span class="dot">?</span>
+      <span class="name">Platform grants</span>
+      <span class="sub">Snowflake, Databricks, Starburst</span>
+    </li>
+    <li class="">
+      <span class="dot">5</span>
+      <span class="name">Session</span>
+      <span class="sub">Role and warehouse in use</span>
+    </li>
+    <li class="">
+      <span class="dot">6</span>
+      <span class="name">Data</span>
+      <span class="sub">Table registered and current</span>
+    </li>
+  </ol>
+    <div class="cards three">
+      
+      <div class="card">
+        <div class="card-head"><span class="ico warn"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M256,8C119,8,8,119,8,256S119,504,256,504,504,393,504,256,393,8,256,8Zm92.49,313h0l-20,25a16,16,0,0,1-22.49,2.5h0l-67-49.72a40,40,0,0,1-15-31.23V112a16,16,0,0,1,16-16h32a16,16,0,0,1,16,16V256l58,42.5A16,16,0,0,1,348.49,321Z"></path></svg></span><h3>Slow</h3></div>
+        <p>An engineer checks each system by hand for every ticket</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="ico warn"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M504.971 359.029c9.373 9.373 9.373 24.569 0 33.941l-80 79.984c-15.01 15.01-40.971 4.49-40.971-16.971V416h-58.785a12.004 12.004 0 0 1-8.773-3.812l-70.556-75.596 53.333-57.143L352 336h32v-39.981c0-21.438 25.943-31.998 40.971-16.971l80 79.981zM12 176h84l52.781 56.551 53.333-57.143-70.556-75.596A11.999 11.999 0 0 0 122.785 96H12c-6.627 0-12 5.373-12 12v56c0 6.627 5.373 12 12 12zm372 0v39.984c0 21.46 25.961 31.98 40.971 16.971l80-79.984c9.373-9.373 9.373-24.569 0-33.941l-80-79.981C409.943 24.021 384 34.582 384 56.019V96h-58.785a12.004 12.004 0 0 0-8.773 3.812L96 336H12c-6.627 0-12 5.373-12 12v56c0 6.627 5.373 12 12 12h110.785c3.326 0 6.503-1.381 8.773-3.812L352 176h32z"></path></svg></span><h3>Mis-routed</h3></div>
+        <p>One error message has many causes, so tickets bounce between teams</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="ico warn"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 640 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M256 336h-.02c0-16.18 1.34-8.73-85.05-181.51-17.65-35.29-68.19-35.36-85.87 0C-2.06 328.75.02 320.33.02 336H0c0 44.18 57.31 80 128 80s128-35.82 128-80zM128 176l72 144H56l72-144zm511.98 160c0-16.18 1.34-8.73-85.05-181.51-17.65-35.29-68.19-35.36-85.87 0-87.12 174.26-85.04 165.84-85.04 181.51H384c0 44.18 57.31 80 128 80s128-35.82 128-80h-.02zM440 320l72-144 72 144H440zm88 128H352V153.25c23.51-10.29 41.16-31.48 46.39-57.25H528c8.84 0 16-7.16 16-16V48c0-8.84-7.16-16-16-16H383.64C369.04 12.68 346.09 0 320 0s-49.04 12.68-63.64 32H112c-8.84 0-16 7.16-16 16v32c0 8.84 7.16 16 16 16h129.61c5.23 25.76 22.87 46.96 46.39 57.25V448H112c-8.84 0-16 7.16-16 16v32c0 8.84 7.16 16 16 16h416c8.84 0 16-7.16 16-16v-32c0-8.84-7.16-16-16-16z"></path></svg></span><h3>Inconsistent</h3></div>
+        <p>“Should they have access?” is answered from memory, with pressure to over-grant</p>
+      </div>
+    </div>
+    <p class="footnote">Ticket volumes and resolution times will be baselined in Phase 0.</p>
+    <footer><span>Consumer Access Assistant  |  Proposal</span><span>2</span></footer>
+  </section>
+<section class="slide" aria-label="Slide 3: Evidence first, then a verdict">
+    <h2>Evidence first, then a verdict</h2>
+    <div class="cards three steps">
+      
+      <div class="card">
+        <div class="card-head"><span class="dot">1</span><h3>Read-only tools</h3></div>
+        <p>Collect facts from AD, Immuta, Snowflake and query history. 82 catalogued, 32 in the MVP.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="dot">2</span><h3>Decision engine</h3></div>
+        <p>Tested code, not the AI model, compares the access a user should have with what they actually have.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="dot">3</span><h3>Chat assistant</h3></div>
+        <p>Explains the verdict in plain language, shows the evidence and gives the one next step.</p>
+      </div>
+    </div>
+    <h4>Four possible verdicts, each with a clear owner</h4>
+    <div class="cards four verdicts">
+      
+      <div class="card ok">
+        <p class="tag">Should have, and has</p>
+        <p>Session set-up issue. The user gets the exact fix.</p>
+      </div>
+      <div class="card warn">
+        <p class="tag">Should have, has not</p>
+        <p>Platform fault. Escalated with the evidence.</p>
+      </div>
+      <div class="card ok">
+        <p class="tag">Should not, has not</p>
+        <p>Working as designed. User is told what to request.</p>
+      </div>
+      <div class="card warn">
+        <p class="tag">Should not, but has</p>
+        <p>Excess access. Flagged to governance.</p>
+      </div>
+    </div>
+    <p class="footnote">The same tools also run on a schedule, to find sync faults before users report them.</p>
+    <footer><span>Consumer Access Assistant  |  Proposal</span><span>3</span></footer>
+  </section>
+<section class="slide" aria-label="Slide 4: Built to be safe and reusable">
+    <h2>Built to be safe and reusable</h2>
+    <div class="split">
+      <div class="layers">
+        
+        <div class="layer"><span class="tag">CHANNELS</span><span>Web chat, Teams or Slack</span></div><div class="down" aria-hidden="true"></div>
+        <div class="layer"><span class="tag">AI AGENT</span><span>Amazon Bedrock AgentCore, Claude model</span></div><div class="down" aria-hidden="true"></div>
+        <div class="layer key"><span class="tag">GATEWAY</span><span>MCP and REST, identity and scope checks</span></div><div class="down" aria-hidden="true"></div>
+        <div class="layer"><span class="tag">TOOLS</span><span>Tools and decision engine on AWS Lambda</span></div><div class="down" aria-hidden="true"></div>
+        <div class="layer external"><span class="tag">READ-ONLY</span><span>Entra ID, Immuta, Snowflake, then Databricks and Starburst</span></div>
+      </div>
+      <ul class="rows">
+        
+        <li><span class="ico"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 448 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M400 224h-24v-72C376 68.2 307.8 0 224 0S72 68.2 72 152v72H48c-26.5 0-48 21.5-48 48v192c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48V272c0-26.5-21.5-48-48-48zm-104 0H152v-72c0-39.7 32.3-72 72-72s72 32.3 72 72v72z"></path></svg></span><div><h3>Read-only</h3><p>Cannot grant or change access anywhere</p></div></li>
+        <li><span class="ico"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 448 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M448 73.143v45.714C448 159.143 347.667 192 224 192S0 159.143 0 118.857V73.143C0 32.857 100.333 0 224 0s224 32.857 224 73.143zM448 176v102.857C448 319.143 347.667 352 224 352S0 319.143 0 278.857V176c48.125 33.143 136.208 48.572 224 48.572S399.874 209.143 448 176zm0 160v102.857C448 479.143 347.667 512 224 512S0 479.143 0 438.857V336c48.125 33.143 136.208 48.572 224 48.572S399.874 369.143 448 336z"></path></svg></span><div><h3>No business data</h3><p>Reads metadata only, never rows of data</p></div></li>
+        <li><span class="ico"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 640 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M622.3 271.1l-115.2-45c-4.1-1.6-12.6-3.7-22.2 0l-115.2 45c-10.7 4.2-17.7 14-17.7 24.9 0 111.6 68.7 188.8 132.9 213.9 9.6 3.7 18 1.6 22.2 0C558.4 489.9 640 420.5 640 296c0-10.9-7-20.7-17.7-24.9zM496 462.4V273.3l95.5 37.3c-5.6 87.1-60.9 135.4-95.5 151.8zM224 256c70.7 0 128-57.3 128-128S294.7 0 224 0 96 57.3 96 128s57.3 128 128 128zm96 40c0-2.5.8-4.8 1.1-7.2-2.5-.1-4.9-.8-7.5-.8h-16.7c-22.2 10.2-46.9 16-72.9 16s-50.6-5.8-72.9-16h-16.7C60.2 288 0 348.2 0 422.4V464c0 26.5 21.5 48 48 48h352c6.8 0 13.3-1.5 19.2-4-54-42.9-99.2-116.7-99.2-212z"></path></svg></span><div><h3>Identity enforced outside the AI</h3><p>Users see only their own access</p></div></li>
+        <li><span class="ico"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M505 442.7L405.3 343c-4.5-4.5-10.6-7-17-7H372c27.6-35.3 44-79.7 44-128C416 93.1 322.9 0 208 0S0 93.1 0 208s93.1 208 208 208c48.3 0 92.7-16.4 128-44v16.3c0 6.4 2.5 12.5 7 17l99.7 99.7c9.4 9.4 24.6 9.4 33.9 0l28.3-28.3c9.4-9.4 9.4-24.6.1-34zM208 336c-70.7 0-128-57.2-128-128 0-70.7 57.2-128 128-128 70.7 0 128 57.2 128 128 0 70.7-57.2 128-128 128z"></path></svg></span><div><h3>Evidence on every answer</h3><p>Findings cite their source and freshness</p></div></li>
+        <li><span class="ico"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 384 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M320,32a32,32,0,0,0-64,0v96h64Zm48,128H16A16,16,0,0,0,0,176v32a16,16,0,0,0,16,16H32v32A160.07,160.07,0,0,0,160,412.8V512h64V412.8A160.07,160.07,0,0,0,352,256V224h16a16,16,0,0,0,16-16V176A16,16,0,0,0,368,160ZM128,32a32,32,0,0,0-64,0v96h64Z"></path></svg></span><div><h3>Reusable</h3><p>Tools also serve other agents and scripts</p></div></li>
+      </ul>
+    </div>
+    <footer><span>Consumer Access Assistant  |  Proposal</span><span>4</span></footer>
+  </section>
+<section class="slide" aria-label="Slide 5: What the organisation gains">
+    <h2>What the organisation gains</h2>
+    <div class="split gains">
+      <ul class="rows big">
+        
+        <li><span class="ico"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 640 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M96 224c35.3 0 64-28.7 64-64s-28.7-64-64-64-64 28.7-64 64 28.7 64 64 64zm448 0c35.3 0 64-28.7 64-64s-28.7-64-64-64-64 28.7-64 64 28.7 64 64 64zm32 32h-64c-17.6 0-33.5 7.1-45.1 18.6 40.3 22.1 68.9 62 75.1 109.4h66c17.7 0 32-14.3 32-32v-32c0-35.3-28.7-64-64-64zm-256 0c61.9 0 112-50.1 112-112S381.9 32 320 32 208 82.1 208 144s50.1 112 112 112zm76.8 32h-8.3c-20.8 10-43.9 16-68.5 16s-47.6-6-68.5-16h-8.3C179.6 288 128 339.6 128 403.2V432c0 26.5 21.5 48 48 48h288c26.5 0 48-21.5 48-48v-28.8c0-63.6-51.6-115.2-115.2-115.2zm-223.7-13.4C161.5 263.1 145.6 256 128 256H64c-35.3 0-64 28.7-64 64v32c0 17.7 14.3 32 32 32h65.9c6.3-47.4 34.9-87.3 75.2-109.4z"></path></svg></span><div><h3>Consumers</h3><p>Answers in minutes, without raising a ticket</p></div></li>
+        <li><span class="ico"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M501.1 395.7L384 278.6c-23.1-23.1-57.6-27.6-85.4-13.9L192 158.1V96L64 0 0 64l96 128h62.1l106.6 106.6c-13.6 27.8-9.2 62.3 13.9 85.4l117.1 117.1c14.6 14.6 38.2 14.6 52.7 0l52.7-52.7c14.5-14.6 14.5-38.2 0-52.7zM331.7 225c28.3 0 54.9 11 74.9 31l19.4 19.4c15.8-6.9 30.8-16.5 43.8-29.5 37.1-37.1 49.7-89.3 37.9-136.7-2.2-9-13.5-12.1-20.1-5.5l-74.4 74.4-67.9-11.3L334 98.9l74.4-74.4c6.6-6.6 3.4-17.9-5.7-20.2-47.4-11.7-99.6.9-136.6 37.9-28.5 28.5-41.9 66.1-41.2 103.6l82.1 82.1c8.1-1.9 16.5-2.9 24.7-2.9zm-103.9 82l-56.7-56.7L18.7 402.8c-25 25-25 65.5 0 90.5s65.5 25 90.5 0l123.6-123.6c-7.6-19.9-9.9-41.6-5-62.7zM64 472c-13.2 0-24-10.8-24-24 0-13.3 10.7-24 24-24s24 10.7 24 24c0 13.2-10.7 24-24 24z"></path></svg></span><div><h3>Platform teams</h3><p>Fewer specialist tickets, and escalations that arrive with evidence</p></div></li>
+        <li><span class="ico"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M466.5 83.7l-192-80a48.15 48.15 0 0 0-36.9 0l-192 80C27.7 91.1 16 108.6 16 128c0 198.5 114.5 335.7 221.5 380.3 11.8 4.9 25.1 4.9 36.9 0C360.1 472.6 496 349.3 496 128c0-19.4-11.7-36.9-29.5-44.3zM256.1 446.3l-.1-381 175.9 73.3c-3.3 151.4-82.1 261.1-175.8 307.7z"></path></svg></span><div><h3>Governance</h3><p>Policy-based answers, and excess access surfaced instead of kept</p></div></li>
+        <li><span class="ico"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" aria-hidden="true" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M488.6 250.2L392 214V105.5c0-15-9.3-28.4-23.4-33.7l-100-37.5c-8.1-3.1-17.1-3.1-25.3 0l-100 37.5c-14.1 5.3-23.4 18.7-23.4 33.7V214l-96.6 36.2C9.3 255.5 0 268.9 0 283.9V394c0 13.6 7.7 26.1 19.9 32.2l100 50c10.1 5.1 22.1 5.1 32.2 0l103.9-52 103.9 52c10.1 5.1 22.1 5.1 32.2 0l100-50c12.2-6.1 19.9-18.6 19.9-32.2V283.9c0-15-9.3-28.4-23.4-33.7zM358 214.8l-85 31.9v-68.2l85-37v73.3zM154 104.1l102-38.2 102 38.2v.6l-102 41.4-102-41.4v-.6zm84 291.1l-85 42.5v-79.1l85-38.8v75.4zm0-112l-102 41.4-102-41.4v-.6l102-38.2 102 38.2v.6zm240 112l-85 42.5v-79.1l85-38.8v75.4zm0-112l-102 41.4-102-41.4v-.6l102-38.2 102 38.2v.6z"></path></svg></span><div><h3>The wider platform</h3><p>Reusable tools, and the base for guided consumer onboarding</p></div></li>
+      </ul>
+      <div>
+        <div class="stats">
+          
+          <div class="card stat"><p class="num">60%</p><p>of access tickets resolved without a platform engineer</p></div>
+          <div class="card stat"><p class="num">&lt;2 min</p><p>median time to a diagnosis in chat</p></div>
+          <div class="card stat"><p class="num">95%</p><p>correct root cause on the test scenario set</p></div>
+          <div class="card stat"><p class="num">70%</p><p>of sync faults found before a user reports them</p></div>
+        </div>
+        <p class="footnote">Targets to measure after the MVP, not measured results. Baselines are captured in Phase 0.</p>
+      </div>
+    </div>
+    <footer><span>Consumer Access Assistant  |  Proposal</span><span>5</span></footer>
+  </section>
+<section class="slide dark" aria-label="Slide 6: Roadmap and the decision we need">
+    <h2>Roadmap and the decision we need</h2>
+    <div class="phase-labels"><span class="now">THIS REQUEST</span><span>LATER PHASES</span></div>
+    <div class="phases">
+      
+      <div class="phase now">
+        <div class="card-head"><span class="dot">0</span><h3>Foundations</h3></div>
+        <p>Confirm facts, access and hosting</p>
+        
+      </div>
+      <div class="phase now">
+        <div class="card-head"><span class="dot">1</span><h3>MVP</h3></div>
+        <p>Snowflake, Immuta and Entra ID</p>
+        
+      </div>
+      <div class="phase">
+        <div class="card-head"><span class="dot">2</span><h3>Depth</h3></div>
+        <p>Monitoring, tickets, Teams and web</p>
+        
+      </div>
+      <div class="phase">
+        <div class="card-head"><span class="dot">3</span><h3>Platforms</h3></div>
+        <p>Add Databricks and Starburst</p>
+        
+      </div>
+      <div class="phase">
+        <div class="card-head"><span class="dot">4</span><h3>Onboarding</h3></div>
+        <p>Guided consumer onboarding</p>
+        
+      </div>
+    </div>
+    <p class="footnote">This request covers Phase 0 and the MVP. Later phases are planned after the MVP.</p>
+    <h4>We are asking for</h4>
+    <div class="cards four asks">
+      
+      <div class="card">
+        <div class="card-head"><span class="dot">1</span><h3>Approval</h3></div>
+        <p>Go-ahead for Phase 0 and the MVP</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="dot">2</span><h3>A team</h3></div>
+        <p>A delivery team and a named product owner</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="dot">3</span><h3>Read-only access</h3></div>
+        <p>Service identities in Snowflake, Immuta and Entra ID</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="dot">4</span><h3>Hosting sign-off</h3></div>
+        <p>Amazon Bedrock AgentCore in an approved Region</p>
+      </div>
+    </div>
+    <footer><span>Consumer Access Assistant  |  Proposal</span><span>6</span></footer>
+  </section>
+</main></div>
+<div class="controls" aria-label="Slide controls">
+  <button id="prev" aria-label="Previous slide">&#8592;</button>
+  <span id="count">1 / 6</span>
+  <button id="next" aria-label="Next slide">&#8594;</button>
+  <button id="toggleNotes" title="Speaker notes (N)">Notes</button>
+</div>
+<div class="notes" id="notes" aria-live="polite"></div>
+<script>
+(function(){
+  var slides=[].slice.call(document.querySelectorAll('.slide')),stage=document.querySelector('.stage'),
+      count=document.getElementById('count'),notesBox=document.getElementById('notes'),notes=["Opening. We are proposing a chat assistant that tells a data consumer why they cannot reach a data product, whether they are supposed to, and what to do next. The design is complete; nothing is built yet. Today we are asking for approval to run a foundations phase and build the MVP.","Access to one table depends on a chain: the person's identity, their AD groups and attributes, the Immuta policy, the grants on the platform, the role their session is using, and the table itself. The platforms return the same generic message for most of these. Row-level and masking outcomes return no error at all. So today a platform engineer walks the chain manually. We do not yet have measured baselines; capturing them is part of Phase 0.","Three parts. First, a library of small read-only tools that each answer one question, for example which groups a user has or what their last failed queries were. Second, a decision engine in ordinary tested code that compares expected access with actual access. The AI model does not make that decision; it only explains it. Third, the chat assistant. Every question ends in one of four verdicts, and each verdict has an owner: the user, the platform team, or governance.","For the architects. The agent runs on Amazon Bedrock AgentCore. Tools are AWS Lambda functions exposed through one gateway as both MCP and REST, so an existing agent or a script can use them without this assistant. The safeguards matter most: service identities are read-only, the tools never read rows from data products, and who is asking is checked outside the AI model at the gateway and again in each tool. Seven architecture decision records are in the repository. Hosting on AgentCore still needs architecture and security approval.","Four groups benefit. The numbers on the right are targets we are committing to measure, not results; we set them in the epic and will baseline against current ticket data in Phase 0. A fifth target, not shown, is to halve mis-routed access tickets.","Five phases. We are asking for the first two today: a foundations phase that confirms the integration facts, access and hosting, and then the MVP for Snowflake, Immuta and Entra ID. Later phases are planned after the MVP. The four asks: approval for Phase 0 and the MVP; a delivery team and a named product owner; read-only service identities from the Snowflake, Immuta and identity owners; and architecture and security sign-off for the hosting platform. Main risks are the variety of policy shapes, the lag in platform metadata, and getting the read permissions; mitigations are in the proposal document. Effort and cost are not on this slide: they are estimated once Phase 0 has verified the integration facts and gathered ticket volumes."],i=0;
+  function fit(){var s=Math.min(innerWidth/1280,innerHeight/720);stage.style.transform='scale('+s+')';
+    stage.style.left=(innerWidth-1280*s)/2+'px';stage.style.top=(innerHeight-720*s)/2+'px';}
+  function show(n){i=Math.max(0,Math.min(slides.length-1,n));slides.forEach(function(el,k){el.classList.toggle('active',k===i)});
+    count.textContent=(i+1)+' / '+slides.length;notesBox.textContent=notes[i];if(location.hash!=='#'+(i+1))history.replaceState(null,'','#'+(i+1));}
+  document.addEventListener('keydown',function(e){
+    if(['ArrowRight','PageDown',' ','Enter'].indexOf(e.key)>-1){e.preventDefault();show(i+1)}
+    else if(['ArrowLeft','PageUp','Backspace'].indexOf(e.key)>-1){e.preventDefault();show(i-1)}
+    else if(e.key==='Home')show(0);else if(e.key==='End')show(slides.length-1);
+    else if(e.key==='n'||e.key==='N')notesBox.classList.toggle('on');
+    else if(e.key==='f'||e.key==='F'){if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen();}
+  });
+  document.getElementById('prev').onclick=function(){show(i-1)};
+  document.getElementById('next').onclick=function(){show(i+1)};
+  document.getElementById('toggleNotes').onclick=function(){notesBox.classList.toggle('on')};
+  var x0=null;document.addEventListener('touchstart',function(e){x0=e.touches[0].clientX},{passive:true});
+  document.addEventListener('touchend',function(e){if(x0===null)return;var dx=e.changedTouches[0].clientX-x0;if(Math.abs(dx)>50)show(i+(dx<0?1:-1));x0=null});
+  var ctl=document.querySelector('.controls'),timer;function wake(){ctl.classList.add('on');clearTimeout(timer);timer=setTimeout(function(){ctl.classList.remove('on')},2500)}
+  addEventListener('mousemove',wake);addEventListener('touchstart',wake,{passive:true});
+  addEventListener('resize',fit);fit();show((parseInt(location.hash.slice(1),10)||1)-1);
+})();
+</script>
+</body>
+</html>

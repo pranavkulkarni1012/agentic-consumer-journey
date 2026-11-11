@@ -15,7 +15,7 @@ A consumer can read a table only if every layer holds. The engine evaluates all 
 | **L4 Session** | Did the failing query run with the right role, secondary roles, warehouse? | SF-05, SF-06, SF-01 | Secondary roles not active, wrong role, no warehouse |
 | **L5 Data** | Does the table exist, is it current, can the platform read the storage? | SF-08, SF-11, DP-03, DP-06, AW-01..03 | Dropped or recreated, stale Iceberg metadata, S3/KMS denial |
 
-A **platform pre-check** runs first: `monitor_get_platform_status` and `immuta_get_integration_status`. If a relevant incident is open, the engine still runs but puts `PLT-*` at the top of the root causes.
+A **platform pre-check** runs first: `immuta_get_integration_status` (Phase 1), plus `monitor_get_platform_status` once monitoring exists (Phase 2). If a relevant incident is open, the engine still runs but puts `PLT-*` at the top of the root causes.
 
 ## 2. Expected versus actual
 
@@ -47,7 +47,7 @@ session_ok       = f(L4)              whether the user's session could use it
 | `expected_yes_actual_no` | yes | no | - | Platform or sync defect | Escalate to platform team with evidence; tell the user it is not on them |
 | `expected_no_actual_no` | no | no | - | Working as designed | Tell the user what is missing and how to request it |
 | `approval_pending` | approval_required | no | - | Waiting on a person | Show who must approve and since when |
-| `expected_no_actual_yes` | no | yes | - | Over-entitlement | File governance finding (WF-07). User-facing text: see section 6 |
+| `expected_no_actual_yes` | no | yes | - | Over-entitlement | Record a governance finding. User-facing text: see section 6 |
 | `data_unavailable` | any | any | - | L5 fault dominates | Route to producer or platform team |
 | `inconclusive` | unknown | or unknown | - | Not enough evidence | Say exactly what could not be checked and offer escalation |
 
@@ -188,7 +188,7 @@ Evaluation returns `satisfied: true | false | unknown` for each node. `unsupport
 
 When actual access exceeds expected access, the engine:
 
-1. Writes a finding (`SEC-001`) with evidence to `caa-findings` and publishes to the governance topic (WF-07). This happens inside the engine, not at the model's discretion.
+1. Writes a finding (`SEC-001`) with evidence to `caa-findings` and emits the metric `diagnosis.over_entitled`, which raises a security alarm. This happens inside the engine, not at the model's discretion, and is in place from Phase 1. Phase 2 (WF-07, story CAA-212) adds routing to the governance queue and a way for governance to list and resolve findings. Roles and users configured as excepted from Immuta policies do not raise findings.
 2. Returns verdict `expected_no_actual_yes` to the agent together with `user_message_policy: "neutral"`.
 3. The agent, for a `self` requester, answers the question that was asked (their access works) without describing the gap as a way to keep access. For `support` and above it shows the finding.
 
@@ -227,7 +227,7 @@ The agent states medium and low confidence in words and says what would raise it
 
 ```mermaid
 flowchart TD
-    S([diagnose_table_access]) --> P[Platform pre-check<br/>MN-01, IM-12]
+    S([diagnose_table_access]) --> P[Platform pre-check<br/>IM-12, MN-01 from Phase 2]
     P --> R[Resolve identity ID-01<br/>parse table, find data source IM-03]
     R --> F{{Parallel fan-out}}
     F --> A1[L0: ID-02, IM-01, SF-01]
@@ -244,7 +244,7 @@ flowchart TD
     M --> V
     V --> C[Root causes, ranked<br/>next actions, owner]
     C --> O{Over-entitled?}
-    O -- yes --> G[WF-07 governance finding]
+    O -- yes --> G[Record SEC-001 finding]
     O -- no --> Z
     G --> Z([Return result + evidence refs])
 ```

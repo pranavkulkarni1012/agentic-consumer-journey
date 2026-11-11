@@ -8,7 +8,7 @@ This design was written from a short description of the platform. Everything bel
 |---|---|---|
 | A1 | Entra ID (Azure AD) is reachable through Microsoft Graph and holds the AD groups used by Immuta policies (synced from on-prem AD if applicable) | Swap the Graph connector for an LDAP adapter behind the same port; ID-06 changes source |
 | A2 | Immuta gets groups and attributes from the identity provider (SCIM, SAML/OIDC claims or an external user info endpoint) | The L1 comparison (directory versus Immuta) changes which side is authoritative for attributes |
-| A3 | The Immuta Snowflake integration uses table grants (one Immuta-managed role per user) with secondary roles | SF-02/SF-03 logic and SES-001 change if access is granted another way |
+| A3 | The Immuta Snowflake integration uses table grants (one Immuta-managed role per user) with secondary roles. Snowflake now defaults `DEFAULT_SECONDARY_ROLES` to `ALL` for users who had it unset, so missing secondary roles is expected mainly for explicit overrides and some client tools | SF-02/SF-03 logic and SES-001 change if access is granted another way; SES-001 volume depends on how users and BI tools are configured |
 | A4 | Row-level security is by account, driven by a user attribute or an entitlement mapping table | Add another RLS model type in `config/rls-models.yaml` |
 | A5 | PI columns are identified by Immuta tags and protected by masking policies with group or attribute exceptions | EN-02 needs a different source for "what is PI" |
 | A6 | A data product catalog and a telemetry store exist and can be queried | DP tools fall back to config files and Snowflake grants |

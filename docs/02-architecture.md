@@ -28,8 +28,8 @@ Source: [`diagrams/architecture.py`](../diagrams/architecture.py) (diagram as co
 | Web chat UI | S3 + CloudFront + AWS WAF | Static single-page chat client. Optional in Phase 1 (API-first), delivered in Phase 2. |
 | Chat channel bot | Teams or Slack app | Posts messages to the chat API. Phase 2. |
 | Sign-in | Amazon Cognito user pool federated to Entra ID (OIDC/SAML) | Issues JWTs carrying the user's UPN and group claims that map to assistant scopes. If the organisation prefers, Entra ID can be the direct OIDC issuer and Cognito is dropped (see [ADR-006](adr/ADR-006-identity-and-authorization.md)). |
-| API | Amazon API Gateway (HTTP API, JWT authorizer) | Two route groups: `/chat/*` (conversation) and `/v1/*` (Access Diagnostics REST API). |
-| Chat backend (BFF) | AWS Lambda | Validates the session, calls `InvokeAgentRuntime` with the user identity, streams the reply. |
+| API | Amazon API Gateway (REST API) with a Cognito authorizer, or a Lambda authorizer if Entra ID is the token issuer | Two route groups: `/chat/*` (conversation) and `/v1/*` (Access Diagnostics REST API). A REST API is used because response streaming, needed for chat, is available on REST APIs and not on HTTP APIs. |
+| Chat backend (BFF) | AWS Lambda (response streaming enabled) | Validates the session, calls `InvokeAgentRuntime` with the user identity, streams the reply through API Gateway (integration response transfer mode `STREAM`). Alternative to evaluate in CAA-171: the client calls AgentCore Runtime directly with the user's token, which removes this hop. |
 
 ### 3.2 Agent plane
 
@@ -159,7 +159,7 @@ flowchart LR
         A[Agent reasoning]
     end
     subgraph Enforced outside the model
-        J[JWT authorizer<br/>who is asking]
+        J[API Gateway authorizer<br/>who is asking]
         P[Gateway policy<br/>may requester act for subject?]
         H[Handler check<br/>scope re-verified]
         R[Redaction<br/>query literals, IPs]
@@ -176,7 +176,7 @@ flowchart LR
 |---|---|
 | Accounts | One workload account per environment (`dev`, `test`, `prod`). Cross-account read role into producer accounts only in Phase 3. |
 | Region | One primary Region where AgentCore Runtime, Gateway and the chosen Bedrock model are all available and where data residency rules are met. Confirm in CAA-002. |
-| Network | Lambda functions and AgentCore egress in private subnets. Snowflake and Databricks over AWS PrivateLink where the organisation already has it. Immuta SaaS and Microsoft Graph over a NAT with an egress allow-list, or private connectivity if Immuta is self-hosted. VPC endpoints for S3, DynamoDB, Secrets Manager, KMS, CloudWatch, Bedrock. |
+| Network | Tool Lambda functions run in private subnets and are the only components that call the source systems; the agent itself calls only the Gateway, the model and the knowledge base. Snowflake and Databricks over AWS PrivateLink where the organisation already has it. Immuta SaaS and Microsoft Graph over a NAT with an egress allow-list, or private connectivity if Immuta is self-hosted. VPC endpoints for S3, DynamoDB, Secrets Manager, KMS, CloudWatch, Bedrock. |
 | IaC | AWS CDK (Python) or Terraform, matching the platform team's standard. Decision recorded in the implementation guide. |
 | CI/CD | GitHub Actions or CodePipeline: lint, unit tests, contract tests, `cdk diff`/`plan`, deploy to dev, run eval suite, gated promotion. |
 | Configuration | Git-versioned YAML in `config/` (scope, group prefixes, attribute map, RLS models, PI classification, error catalog, request routes) loaded at cold start, with environment overrides in SSM Parameter Store / AppConfig. |

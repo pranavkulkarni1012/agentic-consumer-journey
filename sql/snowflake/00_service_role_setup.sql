@@ -4,10 +4,11 @@
 -- platform owner before running. Names are suggestions; align to your standards.
 --
 -- Principle: metadata only. This role gets NO privileges on data-mesh tables.
--- VERIFY (spike CAA-003): the mapping of ACCOUNT_USAGE views to SNOWFLAKE database
--- roles for your account edition, and whether GOVERNANCE_VIEWER + SECURITY_VIEWER
--- cover every view used in this folder. If not, fall back to IMPORTED PRIVILEGES
--- on the SNOWFLAKE database for this role (broader; record the exception).
+-- The view-to-database-role mapping below follows Snowflake's "SNOWFLAKE database roles"
+-- documentation (checked November 2026). VERIFY in spike CAA-003 that every SQL file in
+-- this folder runs under this role in your account. If one does not, prefer adding the
+-- single missing database role over IMPORTED PRIVILEGES on the SNOWFLAKE database
+-- (broader; record the exception).
 -- =============================================================================
 
 USE ROLE SECURITYADMIN;
@@ -15,14 +16,18 @@ USE ROLE SECURITYADMIN;
 CREATE ROLE IF NOT EXISTS CAA_DIAG_READER
   COMMENT = 'Consumer Access Assistant: read-only access to account metadata and usage views';
 
--- Query history, access history, policy references, tag references
+-- SNOWFLAKE database roles can only be granted by ACCOUNTADMIN (or a role that has been
+-- given that ability). This is the one step that needs it.
+USE ROLE ACCOUNTADMIN;
+
+-- QUERY_HISTORY, ACCESS_HISTORY, POLICY_REFERENCES, TAG_REFERENCES
 GRANT DATABASE ROLE SNOWFLAKE.GOVERNANCE_VIEWER TO ROLE CAA_DIAG_READER;
--- Users, roles, grants, login history, network policies
+-- USERS, LOGIN_HISTORY, GRANTS_TO_USERS, GRANTS_TO_ROLES
 GRANT DATABASE ROLE SNOWFLAKE.SECURITY_VIEWER   TO ROLE CAA_DIAG_READER;
--- Tables, columns, databases, schemata
+-- TABLES, VIEWS, COLUMNS
 GRANT DATABASE ROLE SNOWFLAKE.OBJECT_VIEWER     TO ROLE CAA_DIAG_READER;
--- Warehouse metering and events
-GRANT DATABASE ROLE SNOWFLAKE.USAGE_VIEWER      TO ROLE CAA_DIAG_READER;
+-- USAGE_VIEWER is deliberately NOT granted: no Phase 1 or Phase 2 query in this folder
+-- needs it. Add it only if a later tool reads a usage view, and record why.
 
 USE ROLE SYSADMIN;
 

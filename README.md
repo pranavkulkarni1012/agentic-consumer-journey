@@ -11,8 +11,8 @@ and, later, guides consumer onboarding.
 
 1. Producers publish Parquet / Iceberg tables in S3; tables are registered on Snowflake,
    Databricks and Starburst; Immuta controls access using AD groups and user attributes.
-2. When a consumer cannot see data, the cause is one broken link in a chain that crosses
-   five systems.
+2. When a consumer cannot see data, the cause is one broken link in a chain of six:
+   identity, entitlements, policy, platform grants, session and the table itself.
 3. A library of read-only **tools** collects the evidence; a deterministic **engine**
    compares the access a user *should* have with what they *actually* have.
 4. A chat **agent** explains the result and the next step. The same tools drive
@@ -24,7 +24,7 @@ and, later, guides consumer onboarding.
 
 | If you are | Read |
 |---|---|
-| A sponsor or product owner | [`EPIC.md`](EPIC.md), then [`docs/01-solution-overview.md`](docs/01-solution-overview.md) |
+| A sponsor or product owner | [`proposal/proposal.md`](proposal/proposal.md) and the deck beside it, then [`EPIC.md`](EPIC.md) and [`docs/01-solution-overview.md`](docs/01-solution-overview.md) |
 | An architect or reviewer | [`docs/02-architecture.md`](docs/02-architecture.md), [`docs/adr/`](docs/adr/README.md), [`docs/07-security-and-governance.md`](docs/07-security-and-governance.md) |
 | The developer who will build it | [`CLAUDE.md`](CLAUDE.md), [`docs/10-implementation-guide.md`](docs/10-implementation-guide.md), [`STORIES.md`](STORIES.md) |
 | A platform owner being asked for access | [`docs/07-security-and-governance.md`](docs/07-security-and-governance.md) section 4, [`sql/snowflake/00_service_role_setup.sql`](sql/snowflake/00_service_role_setup.sql) |
@@ -33,10 +33,11 @@ and, later, guides consumer onboarding.
 ## Contents
 
 ```
+proposal/                       Management proposal: proposal.md and a six-slide deck (PowerPoint and HTML)
 EPIC.md                         Epic definition for the tracker
 STORIES.md                      73 user stories with acceptance criteria, by phase
 CLAUDE.md                       Working agreement for Claude Code
-.github/copilot-instructions.md Same for GitHub Copilot
+copilot-instructions.md         Same for GitHub Copilot (move to .github/ to activate)
 docs/
   01-solution-overview.md       Problem, goals, personas, the access chain, phases
   02-architecture.md            Diagram, components, flows, deployment, integrations

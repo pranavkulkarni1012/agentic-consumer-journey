@@ -57,7 +57,7 @@ A data product on a platform has an ordered list of steps. Each step has a verif
 - id: session_setup
   title: Secondary roles enabled
   why: Your table access comes from an Immuta-managed role alongside your working role.
-  verifier: { tool: snowflake_get_user, pass_when: "default_secondary_roles == ALL" }
+  verifier: { tool: snowflake_get_user, pass_when: "default_secondary_roles == ALL (the Snowflake default unless overridden)" }
   self_service: "ALTER USER … or USE SECONDARY ROLES ALL; (per platform standard)"
 - id: pi_access            # optional
   title: PI access (only if you need unmasked personal data)

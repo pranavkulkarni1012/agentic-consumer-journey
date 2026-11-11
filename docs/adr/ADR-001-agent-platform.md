@@ -39,5 +39,5 @@ quality.
 
 If CAA-002 finds AgentCore unavailable or not approved: run the same Strands agent in a
 container on ECS Fargate behind the BFF, host the MCP server as a Lambda-backed HTTP
-service behind API Gateway with a JWT authorizer, and implement the scope check in a
+service behind API Gateway with a token authorizer, and implement the scope check in a
 Lambda authorizer plus `caa_core.authz`.

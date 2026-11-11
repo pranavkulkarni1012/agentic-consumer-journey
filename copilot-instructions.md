@@ -4,7 +4,7 @@ This repository is the Consumer Access Assistant (CAA): read-only diagnostic too
 deterministic diagnosis engine and a chat agent for data-mesh access issues (Immuta,
 Snowflake, Entra ID; later Databricks and Starburst).
 
-The full working agreement is in [`CLAUDE.md`](../CLAUDE.md). It applies to Copilot as
+The full working agreement is in `CLAUDE.md` at the repository root. It applies to Copilot as
 well. The short version:
 
 ## Always

@@ -17,7 +17,7 @@ Build a chat assistant and a reusable library of read-only diagnostic tools that
 
 ## 2. Problem statement
 
-Access to a data product depends on a chain across five systems: directory groups and attributes, Immuta policy, platform grants, session context, and the registered table itself. When a link breaks, consumers get a generic error, zero rows or masked values. Finding the broken link takes a platform engineer checking each system by hand. Tickets are slow, get routed to the wrong team, and the answer to "should this user have access" depends on who is asked.
+Access to a data product depends on a chain of six links: the person's identity, their directory groups and attributes, Immuta policy, platform grants, session context, and the registered table itself. When a link breaks, consumers get a generic error, zero rows or masked values. Finding the broken link takes a platform engineer checking each system by hand. Tickets are slow, get routed to the wrong team, and the answer to "should this user have access" depends on who is asked.
 
 ## 3. Business value
 

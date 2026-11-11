@@ -19,7 +19,7 @@ This assistant reads who can see what across the data estate. That makes it a se
 | Hop | Mechanism |
 |---|---|
 | User to UI / bot | Entra ID single sign-on (OIDC). MFA per corporate policy. |
-| UI to API Gateway | JWT (Cognito user pool federated to Entra ID, or Entra ID directly). JWT authorizer validates issuer, audience, expiry. |
+| UI to API Gateway | JWT (Cognito user pool federated to Entra ID, or Entra ID directly). An API Gateway authorizer (Cognito authorizer, or a Lambda authorizer for Entra ID tokens) validates issuer, audience and expiry. |
 | BFF to AgentCore Runtime | IAM (`bedrock-agentcore:InvokeAgentRuntime`) with the user's identity passed in the session context and the user's JWT forwarded for the Gateway. |
 | Agent to Gateway | OAuth bearer token (inbound authorizer on the Gateway). The token carries `upn` and scope claims. |
 | Gateway to Lambda tools | IAM (Gateway execution role). Requester context is passed in the invocation payload by the Gateway, not by the model. |
@@ -44,7 +44,7 @@ Group names are placeholders; the mapping lives in `config/scopes.yaml`.
 
 ```mermaid
 flowchart LR
-    A[1. API Gateway<br/>JWT authorizer] --> B[2. AgentCore Gateway<br/>Cedar policy per tool call]
+    A[1. API Gateway<br/>authorizer] --> B[2. AgentCore Gateway<br/>Cedar policy per tool call]
     B --> C[3. Handler<br/>caa_core.authz.check]
     C --> D[4. Field filter<br/>remove fields above scope]
 ```
@@ -85,7 +85,7 @@ The handler repeats the check after identity resolution, because `user` may be g
 |---|---|---|---|
 | Entra ID | App registration `caa-diagnostics` | `User.Read.All`, `GroupMember.Read.All`; `AuditLog.Read.All` from Phase 2 | Any write permission, mail, files |
 | Immuta | Service user `svc-caa` with API key | `AUDIT` (read users), `FETCH_POLICY_INFO`, and `GOVERNANCE` if the visibility report and other users' subscription state require it | `USER_ADMIN`, `APPLICATION_ADMIN`, `CREATE_DATA_SOURCE` |
-| Snowflake | `CAA_DIAG_SVC` (key-pair, `TYPE = SERVICE`), role `CAA_DIAG_READER` | `SNOWFLAKE` database roles for usage and governance views; one XS warehouse | Any privilege on data-mesh databases; `MANAGE GRANTS`; `ACCOUNTADMIN` |
+| Snowflake | `CAA_DIAG_SVC` (key-pair, `TYPE = SERVICE`), role `CAA_DIAG_READER` | `SNOWFLAKE` database roles `GOVERNANCE_VIEWER`, `SECURITY_VIEWER` and `OBJECT_VIEWER` (granted by ACCOUNTADMIN); one XS warehouse | Any privilege on data-mesh databases; `MANAGE GRANTS`; `ACCOUNTADMIN` |
 | Databricks | Service principal (OAuth M2M) | Read on system tables, Unity Catalog metadata read | Data `SELECT` on business tables |
 | Starburst | Service account | System and information schema read | Catalog data read |
 | ITSM / IGA | API user | Read requests; create incident / request | Approve, close, admin |

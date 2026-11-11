@@ -45,6 +45,7 @@ Targets are proposals to be confirmed with the product owner once baseline volum
 | `source.calls`, `source.errors`, `source.latency_ms`, `source.throttles` | system, operation | Upstream health |
 | `diagnosis.count` | verdict, top root cause, platform | What is going wrong in the estate |
 | `diagnosis.unchecked_layers` | layer | Evidence gaps |
+| `diagnosis.over_entitled` | platform, data product | Governance (alarm from Phase 1) |
 | `agent.turn_latency_ms`, `agent.tool_calls_per_turn`, `agent.tokens_in/out` | model | Performance and cost |
 | `authz.denied` | tool, scope | Security |
 | `conversation.resolved` | by_user_action, by_escalation, abandoned | Outcome |
@@ -70,6 +71,7 @@ Targets are proposals to be confirmed with the product owner once baseline volum
 | Inconclusive rate | Over 20% for 1 h | Medium | Team channel |
 | Eval regression | Pass rate drops below gate in CI | Blocks deploy | Pipeline |
 | Scope denials | Over 20 from one requester in 10 min | Medium | Security |
+| Over-entitlement found | Any `diagnosis.over_entitled` event | Medium | Security / governance |
 | Snowflake credit budget | Resource monitor at 80% | Medium | Team channel |
 | Immuta non-GET by `svc-caa` (MC-08) | Any | High | Security |
 
@@ -134,7 +136,7 @@ To be written during build (story CAA-234). Each runbook: symptoms, checks, fix,
 1. Thumbs up/down and "this was wrong" in chat, linked to the diagnosis id.
 2. Weekly review of down-votes, `inconclusive` verdicts and escalations that bounced.
 3. Each confirmed wrong answer becomes an eval scenario before the fix ships.
-4. Monthly: top root causes by volume go to the owning teams as improvement candidates. If `SES-001` dominates, the better fix is default secondary roles, not more diagnoses.
+4. Monthly: top root causes by volume go to the owning teams as improvement candidates. If `SES-001` dominates, the better fix is correcting the secondary-role setting on the affected users or client tools, not more diagnoses.
 
 ### 4.5 Support model
 

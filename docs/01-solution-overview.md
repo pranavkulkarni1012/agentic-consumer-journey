@@ -12,7 +12,7 @@ The data mesh platform works like this today:
 3. **Immuta** controls access. Subscription policies decide who can see a table. Data policies decide which rows (row-level security) and which column values (PI masking) a person sees.
 4. Policy decisions are driven by **AD groups** and **user attributes**.
 
-A consumer's access to one table therefore depends on a chain that crosses five systems. When any link is missing, the consumer sees a generic error ("object does not exist or not authorized"), zero rows, or masked values, and has no way to tell which link broke.
+A consumer's access to one table therefore depends on a chain of six links across the directory, Immuta and the data platform (section 6). When any link is missing, the consumer sees a generic error ("object does not exist or not authorized"), zero rows, or masked values, and has no way to tell which link broke.
 
 ## 2. Problem
 
@@ -138,3 +138,4 @@ Baselines are not known yet. Story CAA-005 captures them from the ITSM tool befo
 | 12 | [Assumptions and open questions](12-assumptions-and-open-questions.md) | What must be confirmed before build |
 | - | [ADRs](adr/) | Why key decisions were made |
 | - | [`EPIC.md`](../EPIC.md), [`STORIES.md`](../STORIES.md) | Backlog |
+| - | [`proposal/`](../proposal/proposal.md) | Management proposal and six-slide deck |

@@ -15,7 +15,8 @@ asking or what they may see.
 2. **Scopes** (`self`, `support`, `steward`, `platform`) come from identity provider
    group claims, mapped in `config/scopes.yaml`.
 3. **Enforcement** at three points, all outside the model:
-   - API Gateway JWT authorizer (authentication);
+   - API Gateway authorizer: Cognito authorizer, or a Lambda authorizer when Entra ID
+     issues the token (authentication);
    - Policy in AgentCore (Cedar) on the Gateway: per tool call, may this requester use
      this tool for this subject; write tools need a confirmation token;
    - `caa_core.authz.check()` in every handler, after identity resolution, plus

@@ -162,7 +162,7 @@ Steps 3 to 7 need no AWS agent services at all. The engine can be demonstrated f
 
 ### 6.1 Set-up
 
-- `CLAUDE.md` at the repo root is loaded automatically by Claude Code. `.github/copilot-instructions.md` does the same for Copilot.
+- `CLAUDE.md` at the repo root is loaded automatically by Claude Code. GitHub Copilot reads `.github/copilot-instructions.md`; the file currently sits at the repo root as `copilot-instructions.md` and must be moved into `.github/` to take effect (story CAA-001).
 - Keep both short and factual. Detailed context stays in `docs/`; the instruction files point to it.
 - Give the assistant the fixture files from CAA-003. Real response shapes prevent invented fields.
 

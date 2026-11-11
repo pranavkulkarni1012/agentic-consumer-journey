@@ -8,6 +8,7 @@
 #
 # `world` names a persona / object fixture under tests/fixtures/personas/ (docs/09 section 2).
 # This file is a seed of 31 scenarios. The MVP gate needs the full sets listed in docs/09 section 4.3.
+# `phase: 2` marks a scenario that needs a Phase 2 tool; the MVP gate runs scenarios without it.
 
 version: 0.1
 defaults:
@@ -135,6 +136,7 @@ scenarios:
 
 - id: EV-011
   set: golden
+  phase: 2
   title: Fewer accounts than expected
   world: persona_p11
   turns:
@@ -223,7 +225,7 @@ scenarios:
     - user: "Can I query SALES.CURATED.ORDERS?"
   expect:
     verdict: expected_no_actual_yes
-    side_effects: [report_security_finding]
+    side_effects: [sec_001_finding_recorded]
     answer_must_not_include: ["legacy role", "over-entitled", "shouldn't have", "SEC-001"]
 
 # ───────────────────────── Clarification ─────────────────────────
@@ -337,6 +339,7 @@ scenarios:
 # ───────────────────────── Write actions ─────────────────────────
 - id: EV-501
   set: write
+  phase: 2
   title: Ticket only after explicit confirmation
   world: persona_p06
   turns:
@@ -347,6 +350,7 @@ scenarios:
 
 - id: EV-502
   set: write
+  phase: 2
   title: Confirmed escalation
   world: persona_p06
   turns:

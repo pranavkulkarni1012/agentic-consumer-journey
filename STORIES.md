@@ -103,7 +103,7 @@ Epic: [`EPIC.md`](EPIC.md) &nbsp;|&nbsp; Design: [`docs/`](docs/01-solution-over
 - Given the layout in `docs/10` section 3, when the repo is created, then the packages `caa_core`, `caa_tools`, `caa_agent`, `caa_api`, `caa_monitor`, `infra` exist with empty tests passing.
 - Given a pull request, when CI runs, then ruff, mypy, pytest, secret scan, schema validation of `config/` and `specs/`, and the tool-catalog render check all execute.
 - Given the IaC decision (CDK or Terraform) and CI choice, when they are made, then they are recorded in an ADR and in `CLAUDE.md`.
-- `CLAUDE.md` and `.github/copilot-instructions.md` are present and reviewed by the team.
+- `CLAUDE.md` is present, `copilot-instructions.md` has been moved to `.github/copilot-instructions.md`, and both are reviewed by the team.
 
 ---
 
@@ -525,7 +525,7 @@ Epic: [`EPIC.md`](EPIC.md) &nbsp;|&nbsp; Design: [`docs/`](docs/01-solution-over
 ---
 
 ### CAA-151 Diagnose table access
-**As a** consumer, **I want** one check that tells me whether I should have access to a table, whether I do, and what to do, **so that** I do not need to understand five systems.
+**As a** consumer, **I want** one check that tells me whether I should have access to a table, whether I do, and what to do, **so that** I do not need to understand how the directory, Immuta and the platform fit together.
 
 | Feature | Pts | Depends | Tools |
 |---|---|---|---|
@@ -536,7 +536,7 @@ Epic: [`EPIC.md`](EPIC.md) &nbsp;|&nbsp; Design: [`docs/`](docs/01-solution-over
 - The result includes `next_actions` with actor, the exact group, attribute, command or route, and expected effect.
 - The diagnosis and evidence are stored and retrievable by `diagnosis_id` for 400 days.
 - p95 latency is under 15 s against non-prod sources.
-- Given persona `p14`, a governance finding is written and `user_message_policy` is `neutral`.
+- Given persona `p14`, a `SEC-001` finding is written to `caa-findings`, the `diagnosis.over_entitled` metric is emitted, and `user_message_policy` is `neutral`. Configured excepted roles and users do not raise findings.
 - Given a change inside the propagation window, the root cause is `ENF-005` or `DIR-003` with medium confidence and a re-check time, not an escalation.
 - A CLI demo runs the diagnosis for any persona without the agent (milestone M1).
 
@@ -584,7 +584,7 @@ Epic: [`EPIC.md`](EPIC.md) &nbsp;|&nbsp; Design: [`docs/`](docs/01-solution-over
 | F7 | 3 | CAA-160 | Phase 1 subset in `api/openapi.yaml` |
 
 **Acceptance criteria**
-- The routes in `api/openapi.yaml` are served by API Gateway with a JWT authorizer and invoke the same handlers.
+- The routes in `api/openapi.yaml` are served by an API Gateway REST API with a Cognito or Lambda authorizer and invoke the same handlers.
 - For the same requester and input, REST and MCP return identical `data`.
 - OpenAPI components are generated from the Pydantic models; the published spec validates.
 - Throttling and per-user rate limits from `config/scopes.yaml` are applied.
@@ -634,7 +634,8 @@ Epic: [`EPIC.md`](EPIC.md) &nbsp;|&nbsp; Design: [`docs/`](docs/01-solution-over
 | F8 | 5 | CAA-170 | - |
 
 **Acceptance criteria**
-- `POST /chat/sessions` and `POST /chat/sessions/{id}/messages` accept a JWT, invoke the agent with the user's identity, and stream the response.
+- `POST /chat/sessions` and `POST /chat/sessions/{id}/messages` accept a JWT, invoke the agent with the user's identity, and stream the response (API Gateway REST API with response streaming and a streaming Lambda).
+- The option of the client calling AgentCore Runtime directly with the user's token is assessed and the choice recorded in an ADR.
 - An unauthenticated or expired token is rejected with 401.
 - The first token arrives within the NFR-01 target in `test`.
 - Session history is retrievable by its owner only.
@@ -864,8 +865,8 @@ Epic: [`EPIC.md`](EPIC.md) &nbsp;|&nbsp; Design: [`docs/`](docs/01-solution-over
 | F11 | 3 | CAA-151 | WF-07 |
 
 **Acceptance criteria**
-- When actual access exceeds expected access, the engine writes a finding with evidence and notifies the governance channel, regardless of what the agent does next.
-- Configured excepted roles and users do not raise findings.
+- Findings recorded by the engine since Phase 1 (CAA-151) are routed to the governance channel and queue with their evidence, regardless of what the agent does next.
+- `report_security_finding` (WF-07) is available to the monitoring checks as well as the engine.
 - A `self` requester's answer contains no description of the excess (eval EV-019).
 - Findings can be listed and resolved by governance.
 

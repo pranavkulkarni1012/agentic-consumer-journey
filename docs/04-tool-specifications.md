@@ -78,7 +78,7 @@ Scopes come from Entra ID group claims mapped in `config/scopes.yaml`.
 | `steward` | Users and policies of data products they own | Data stewards, data product owners |
 | `platform` | Everything, including storage and auth-policy tools | Platform engineers |
 
-Enforcement happens three times, none of them in the model: the JWT authorizer (who), the Gateway Cedar policy (may this requester call this tool for this `user`), and `caa_core.authz.check()` at the start of every handler. Details in [07-security-and-governance.md](07-security-and-governance.md).
+Enforcement happens three times, none of them in the model: the API Gateway authorizer (who), the Gateway Cedar policy (may this requester call this tool for this `user`), and `caa_core.authz.check()` at the start of every handler. Details in [07-security-and-governance.md](07-security-and-governance.md).
 
 Field-level rules: client IP (SF-09), other users' query text (SF-05/06) and full policy exception logic (IM-09) are removed for scopes below those listed in the catalog.
 
@@ -247,7 +247,7 @@ SQL lives in [`sql/snowflake/`](../sql/snowflake/README.md). Common handler beha
 
 | Tool | SQL | Key output and logic |
 |---|---|---|
-| SF-01 `snowflake_get_user` | `get_user.sql` | `disabled`, `locked`, `expires_at`, `default_role`, `default_warehouse`, `default_secondary_roles`. A user with `default_secondary_roles` empty depends on the client running `USE SECONDARY ROLES ALL`. |
+| SF-01 `snowflake_get_user` | `get_user.sql` | `disabled`, `locked`, `expires_at`, `default_role`, `default_warehouse`, `default_secondary_roles`. A user whose `default_secondary_roles` is explicitly empty depends on the client running `USE SECONDARY ROLES ALL`. |
 | SF-02 `snowflake_get_user_roles` | `get_user_roles.sql` | Direct and inherited roles with grant path. `immuta_role_present` when a role named `<PREFIX>_USER_<username>` exists (prefix from config). |
 | SF-03 `snowflake_check_object_privileges` | `check_object_privileges.sql` | The three-link chain. `roles_with_full_chain`, `requires_secondary_roles`. |
 | SF-04 `snowflake_list_accessible_tables` | `list_accessible_tables.sql` | Scoped to data-mesh databases; marks rows unusable when a parent `USAGE` is missing. |
@@ -257,6 +257,8 @@ SQL lives in [`sql/snowflake/`](../sql/snowflake/README.md). Common handler beha
 | SF-08 `snowflake_get_table_status` | `get_table_status.sql` | `exists`, `table_type`, `recreated_recently`. |
 
 **How Immuta and Snowflake fit together (drives SF-02 and SF-03).** With Immuta's Snowflake table grants feature, Immuta creates one Snowflake role per user (`<PREFIX>_USER_<username>`) and grants `SELECT` on subscribed tables to that role. The user's own functional role usually supplies warehouse usage. A query therefore succeeds only when the session has *both*: either the Immuta role is primary and has what it needs, or secondary roles are active (`USE SECONDARY ROLES ALL` or `DEFAULT_SECONDARY_ROLES`). SF-05 returns `secondary_role_stats` from query history so the engine can see what the failing session actually had.
+
+**How common is this?** Since Snowflake behaviour change bundle 2024_08, a user whose `DEFAULT_SECONDARY_ROLES` was unset gets `('ALL')`, so most interactive sessions already have secondary roles active. The split-role failure (`SES-001`) therefore shows up mainly where the property was explicitly set to empty, where a client or connection string disables secondary roles, or where a session policy restricts them. The engine does not assume either way: it reads the user's setting (SF-01) and what the failing query actually ran with (SF-05). Confirm how your account and BI tools are set in CAA-003.
 
 **SF-05 example `data`**
 

@@ -41,28 +41,28 @@ stateDiagram-v2
 
 ## 3. Playbooks
 
-A playbook is the default tool sequence for an intent. The agent may deviate when evidence points elsewhere, but must always reach a verdict through a `diagnose_*` tool for access questions.
+A playbook is the default tool sequence for an intent. "Pre-check" means `immuta_get_integration_status` in Phase 1 and `monitor_get_platform_status` from Phase 2. The **From** column is the phase in which the playbook's tools first exist; in Phase 1, PB-08 and PB-09 questions are still classified by DX-02 and answered with what `snowflake_get_table_status` shows. The agent may deviate when evidence points elsewhere, but must always reach a verdict through a `diagnose_*` tool for access questions.
 
-| ID | Intent (examples) | Tools, in order | Ends with |
-|---|---|---|---|
-| **PB-01** | "Object does not exist or not authorized", "I can't query X" | MN-01 → DX-01 (with `query_id` if given) → on `inconclusive`: SF-06, IM-05, SF-03 individually | Verdict + action |
-| **PB-02** | "Query returns no rows / fewer rows", "I only see 3 accounts" | DX-01 (confirm access first) → EN-01 → DX-03 with the values the user expects | Scope shown + what is missing |
-| **PB-03** | "Column is NULL / masked / hashed" | EN-02 for the table → DX-04 for named columns | Which entitlement unmasks it |
-| **PB-04** | "I can't log in / connect" | MN-01 → DX-05 (ID-02, SF-01, SF-09) | Cause + who fixes it |
-| **PB-05** | "It worked yesterday" | DX-01 → SF-10 (last success) → ID-06, SF-13, IM-10 (what changed) → SF-08 (recreated?) | The change that broke it |
-| **PB-06** | "My colleague can see it, I can't" | EN-04 (support scope) or DX-01 for the requester only | Decisive difference |
-| **PB-07** | "What access do I have?", "Which data products can I use?" | EN-03 → DP-04; EN-02 summary on request | Inventory |
-| **PB-08** | "Table is missing / stale / column missing" | SF-08 → DP-03 → SF-11 → DP-06 (→ AW-01..03 in Phase 3) | Data availability cause |
-| **PB-09** | Warehouse, timeout, "no active warehouse" | DX-02 → SF-12 | Session or compute fix |
-| **PB-10** | "I requested access, still can't" | WF-05 / WF-03 / IM-13 (request status) → DX-01 (propagation rule) | Where the request is, or sync wait |
-| **PB-11** | A pasted query id or error text | DX-02 | Classified cause |
-| **PB-12** | "How do I get access to X?" (pre-onboarding) | DP-01 → DP-02 → IM-16 for the requester | Exactly what to request |
+| ID | Intent (examples) | Tools, in order | Ends with | From |
+|---|---|---|---|---|
+| **PB-01** | "Object does not exist or not authorized", "I can't query X" | Pre-check → DX-01 (with `query_id` if given) → on `inconclusive`: SF-06, IM-05, SF-03 individually | Verdict + action | Phase 1 |
+| **PB-02** | "Query returns no rows / fewer rows", "I only see 3 accounts" | DX-01 (confirm access first) → EN-01; from Phase 2 also DX-03 with the values the user expects | Scope shown + what is missing | Phase 1 |
+| **PB-03** | "Column is NULL / masked / hashed" | EN-02 for the table; from Phase 2 also DX-04 for named columns | Which entitlement unmasks it | Phase 1 |
+| **PB-04** | "I can't log in / connect" | Pre-check → DX-05 (ID-02, SF-01, SF-09) | Cause + who fixes it | Phase 2 |
+| **PB-05** | "It worked yesterday" | DX-01 → SF-10 (last success) → ID-06, SF-13, IM-10 (what changed) → SF-08 (recreated?) | The change that broke it | Phase 2 |
+| **PB-06** | "My colleague can see it, I can't" | EN-04 (support scope) or DX-01 for the requester only | Decisive difference | Phase 2 |
+| **PB-07** | "What access do I have?", "Which data products can I use?" | EN-03 → DP-04; EN-02 summary on request | Inventory | Phase 1 |
+| **PB-08** | "Table is missing / stale / column missing" | SF-08 → DP-03 → SF-11 → DP-06 (→ AW-01..03 in Phase 3) | Data availability cause | Phase 2 |
+| **PB-09** | Warehouse, timeout, "no active warehouse" | DX-02 → SF-12 | Session or compute fix | Phase 2 |
+| **PB-10** | "I requested access, still can't" | WF-05 / WF-03 / IM-13 (request status) → DX-01 (propagation rule) | Where the request is, or sync wait | Phase 2 |
+| **PB-11** | A pasted query id or error text | DX-02 | Classified cause | Phase 1 |
+| **PB-12** | "How do I get access to X?" (pre-onboarding) | DP-01 → DP-02 → IM-16 for the requester | Exactly what to request | Phase 1 |
 
 ### Example: PB-01 walk-through
 
 User: *"Getting 'Object SALES.CURATED.ORDERS does not exist or not authorized' in Snowflake."*
 
-1. `monitor_get_platform_status` → no incidents.
+1. Pre-check (`immuta_get_integration_status` in Phase 1) → no incidents.
 2. `diagnose_table_access(user=self, table=SALES.CURATED.ORDERS, platform=snowflake)` →
    verdict `access_ok_session_issue`, root cause `SES-001`: `SELECT` comes from role `IMMUTA_USER_ASHA_RAO`, database usage from `ANALYST_APAC`; the failing query ran with primary role `ANALYST_APAC` and no secondary roles.
 3. Answer:
