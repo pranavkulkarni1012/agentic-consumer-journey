@@ -15,7 +15,7 @@ When a data consumer cannot see data they expect to see, finding the reason take
 
 The assistant is read-only. It does not grant access and does not read the contents of data products. The decision about whether someone should have access is made by tested code that compares policy with what the platform has actually granted, and the AI model only explains the result.
 
-We are asking for approval to run a short foundations phase and build the MVP for Snowflake, Immuta and Entra ID, with a team of 3 to 4 engineers.
+We are asking for approval to run a foundations phase and build the MVP for Snowflake, Immuta and Entra ID.
 
 ## 2. Problem
 
@@ -83,7 +83,7 @@ Details and the threat model are in [`../docs/07-security-and-governance.md`](..
 | **Governance** | Consistent, policy-based answers; excess access is surfaced instead of kept |
 | **The wider platform** | Reusable tools, and the base for guided consumer onboarding |
 
-Targets we propose to measure, for six months after the MVP. These are targets, not measured results; baselines are captured in Phase 0.
+Targets we propose to measure after the MVP. These are targets, not measured results; baselines are captured in Phase 0.
 
 | Measure | Target |
 |---|---|
@@ -95,26 +95,26 @@ Targets we propose to measure, for six months after the MVP. These are targets, 
 
 ## 6. Scope and roadmap
 
-| Phase | Delivers | Indicative size |
-|---|---|---|
-| **0 Foundations** | Open questions answered, read-only access in place, integration facts verified, hosting approved | About 2 sprints |
-| **1 MVP** | Snowflake, Immuta and Entra ID tools; the decision engine; the chat assistant | About 5 to 6 sprints |
-| 2 Depth | Scheduled monitoring, ticket and escalation creation, Teams/Slack and web chat | Estimated after the MVP |
-| 3 Platforms | Databricks and Starburst | Estimated after the MVP |
-| 4 Onboarding | Guided consumer onboarding | Estimated after the MVP |
+| Phase | Delivers |
+|---|---|
+| **0 Foundations** | Open questions answered, read-only access in place, integration facts verified, hosting approved |
+| **1 MVP** | Snowflake, Immuta and Entra ID tools; the decision engine; the chat assistant |
+| 2 Depth | Scheduled monitoring, ticket and escalation creation, Teams/Slack and web chat |
+| 3 Platforms | Databricks and Starburst |
+| 4 Onboarding | Guided consumer onboarding |
 
-Sizes are planning estimates for a team of 3 to 4 engineers and will be re-estimated once Phase 0 has verified the integration facts. **This request covers Phases 0 and 1 only.**
+**This request covers Phases 0 and 1 only.** Later phases are planned after the MVP.
 
 Out of scope: granting or revoking access, reading business data, replacing Immuta or the ticketing and identity tools, and automated remediation.
 
 ## 7. What we need
 
 1. **Approval** to proceed with Phase 0 and the MVP.
-2. **A team** of 3 to 4 engineers and a named product owner.
+2. **A delivery team** and a named product owner.
 3. **Read-only service identities** in Snowflake, Immuta and Entra ID, granted by each platform owner.
 4. **Hosting sign-off** from architecture and security for Amazon Bedrock AgentCore in an approved Region.
 
-Cost has not been estimated yet. The main drivers are team time, AI model usage, and a small dedicated Snowflake warehouse for metadata queries. Phase 0 gathers the ticket volumes and user numbers needed for an estimate.
+Effort and cost have not been estimated yet. The main cost drivers are team time, AI model usage, and a small dedicated Snowflake warehouse for metadata queries. Phase 0 verifies the integration facts and gathers the ticket volumes and user numbers needed for an estimate.
 
 ## 8. Risks
 
